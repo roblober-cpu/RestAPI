@@ -2,6 +2,10 @@ from flask import Flask, jsonify
 
 app = Flask(__name__)
 
+@app.route("/")
+def home():
+    return "Your Flask app is running on Render!"
+
 @app.route("/hello", methods=["GET"])
 def hello():
     return jsonify({"message":"Hello from Flask API!"})
