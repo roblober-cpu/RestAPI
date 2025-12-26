@@ -18,16 +18,30 @@ def get_client_ip():
 @app.before_request
 def assign_ip_as_username():
     if "username" not in session:
+        session["username"] = get_client_ip()
    
 
 
 
 
-#navigation - pick one of these; would like to use the index page 
+#navigation 
 @app.route("/")
 def home():
     username = session.get("username", "Unknown")
-    return render_template("index.html", name=username)
+    return render_template_string("""
+        <h1>Welcome!</h1>
+        <p>Your login name (IP): {{ username }}</p>
+    """, username=username)
+
+
+
+
+
+#is this needed?
+@app.route("/hello", methods=["GET"])
+def hello():
+    return jsonify({"message":"Hello from Flask API!"})
+
 
 
 
