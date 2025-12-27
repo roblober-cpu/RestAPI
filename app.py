@@ -36,7 +36,7 @@ def index():
     return render_template(
         "index.html",
         info=info,
-        ip=ip,
+        name=ip,
         city=info.get("city"),
         region=info.get("region"),
         country=info.get("country"),
