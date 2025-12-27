@@ -25,13 +25,30 @@ def assign_ip_as_username():
     if "username" not in session:
         session["username"] = get_client_ip()
 
+
 @app.route("/")
-def home():
-    ip = session.get("username", "Unknown")
+def index():
+    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    session["ip"] = ip
+
     info = lookup_ip_info(ip)
-    return render_template("index.html", name=ip, info=info)
-from flask import Flask, request, session, render_template
-import requests
+
+    return render_template(
+        "index.html",
+        info=info,
+        ip=ip,
+        city=info.get("city"),
+        region=info.get("region"),
+        country=info.get("country"),
+        isp=info.get("connection", {}).get("isp"),
+        vpn=info.get("security", {}).get("vpn"),
+    )
+
+
+@app.route("/dashboard")
+def dashboard():
+    return render_template("dashboard.html", visitors=visitors)
+
 
 
 #Deploy

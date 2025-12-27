@@ -1,0 +1,23 @@
+<table>
+  <tr>
+    <th>IP</th>
+    <th>City</th>
+    <th>Region</th>
+    <th>Country</th>
+    <th>ISP</th>
+    <th>VPN</th>
+    <th>Time</th>
+  </tr>
+
+  {% for v in visitors %}
+  <tr>
+    <td>{{ v.ip }}</td>
+    <td>{{ v.city }}</td>
+    <td>{{ v.region }}</td>
+    <td>{{ v.country }}</td>
+    <td>{{ v.isp }}</td>
+    <td>{{ v.vpn }}</td>
+    <td>{{ v.timestamp }}</td>
+  </tr>
+  {% endfor %}
+</table>
