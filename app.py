@@ -29,7 +29,7 @@ def assign_ip_as_username():
 @app.route("/")
 def index():
     ip = request.headers.get("X-Forwarded-For", request.remote_addr)
-    session["ip"] = ip
+    session["name"] = ip
 
     info = lookup_ip_info(ip)
 
