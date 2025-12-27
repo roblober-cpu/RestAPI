@@ -5,6 +5,16 @@
 </head>
 <body>
     <h1>Welcome, {{ name }}!</h1>
+
+    <h2>Your IP Information</h2>
+    <ul>
+        <li><strong>City:</strong> {{ info.city }}</li>
+        <li><strong>Region:</strong> {{ info.region }}</li>
+        <li><strong>Country:</strong> {{ info.country }}</li>
+        <li><strong>ISP:</strong> {{ info.org }}</li>
+        <li><strong>ASN:</strong> {{ info.asn }}</li>
+    </ul>
+
     <p>This page is rendered using a Flask template.</p>
 </body>
 </html>

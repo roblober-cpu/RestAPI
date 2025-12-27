@@ -1,13 +1,8 @@
-from flask import Flask, request, session, render_template_string
-
-
-
+from flask import Flask, request, session, render_template
+import requests
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key"
-
-
-
 
 def get_client_ip():
     forwarded = request.headers.get("X-Forwarded-For")
@@ -15,35 +10,28 @@ def get_client_ip():
         return forwarded.split(",")[0].strip()
     return request.remote_addr
 
+def lookup_ip_info(ip):
+    try:
+        url = f"https://ipapi.co/{ip}/json/"
+        response = requests.get(url, timeout=3)
+        if response.status_code == 200:
+            return response.json()
+        return {}
+    except Exception:
+        return {}
+
 @app.before_request
 def assign_ip_as_username():
     if "username" not in session:
         session["username"] = get_client_ip()
-   
 
-
-
-
-#navigation 
 @app.route("/")
 def home():
-    username = session.get("username", "Unknown")
-    return render_template_string("""
-        <h1>Welcome!</h1>
-        <p>Your login name (IP): {{ username }}</p>
-    """, username=username)
-
-
-
-
-
-#is this needed?
-@app.route("/hello", methods=["GET"])
-def hello():
-    return jsonify({"message":"Hello from Flask API!"})
-
-
-
+    ip = session.get("username", "Unknown")
+    info = lookup_ip_info(ip)
+    return render_template("index.html", name=ip, info=info)
+from flask import Flask, request, session, render_template
+import requests
 
 
 #Deploy
