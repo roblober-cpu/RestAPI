@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Visitor Dashboard</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 30px;
+        }
+        h1 {
+            margin-bottom: 10px;
+        }
+        .visitor-card {
+            border: 1px solid #ccc;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+        }
+        .chain {
+            margin-top: 10px;
+            padding-left: 20px;
+        }
+        .timestamp {
+            color: #666;
+            font-size: 0.9em;
+        }
+        .label {
+            color: #444;
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Visitor Dashboard</h1>
+    <p>Below is a list of all visitors recorded during this server session.</p>
+
+    {% if visitors %}
+        {% for v in visitors %}
+            <div class="visitor-card">
+                <h2>{{ v.ip }}</h2>
+
+                <p>
+                    <strong>Location:</strong>
+                    {{ v.info.city or "Unknown" }},
+                    {{ v.info.region or "Unknown" }},
+                    {{ v.info.country or "Unknown" }}
+                </p>
+
+                <p><strong>ISP:</strong> {{ v.info.org or "Unknown" }}</p>
+
+                <p>
+                    <strong>VPN Detected:</strong>
+                    {% if v.info.security and v.info.security.vpn is not none %}
+                        {{ v.info.security.vpn }}
+                    {% else %}
+                        Unknown
+                    {% endif %}
+                </p>
+
+                <p class="timestamp">
+                    <strong>Timestamp:</strong> {{ v.timestamp }}
+                </p>
+
+                <h3>Network Path</h3>
+                <ul class="chain">
+                    {% for hop, label in v.chain %}
+                        <li>{{ hop }} — <span class="label">{{ label }}</span></li>
+                    {% endfor %}
+                </ul>
+            </div>
+        {% endfor %}
+    {% else %}
+        <p>No visitors yet.</p>
+    {% endif %}
+
+</body>
+</html>

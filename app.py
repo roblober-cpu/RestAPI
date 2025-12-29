@@ -1,14 +1,24 @@
 from flask import Flask, request, session, render_template
 import requests
+from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key"
+
+# In-memory visitor log
+visitors = []
+
+
+# -----------------------------
+#  IP + Network Utilities
+# -----------------------------
 
 def get_client_ip():
     forwarded = request.headers.get("X-Forwarded-For")
     if forwarded:
         return forwarded.split(",")[0].strip()
     return request.remote_addr
+
 
 def lookup_ip_info(ip):
     try:
@@ -20,28 +30,87 @@ def lookup_ip_info(ip):
     except Exception:
         return {}
 
+
+def annotate_ip(ip):
+    # Private ranges
+    if ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."):
+        # More accurate private range check
+        parts = ip.split(".")
+        if parts[0] == "172" and 16 <= int(parts[1]) <= 31:
+            return "Private Network / Load Balancer"
+        if parts[0] in ("10", "192"):
+            return "Private Network / Load Balancer"
+
+    # Cloudflare
+    if ip.startswith(("104.", "172.64.", "188.114.")):
+        return "Cloudflare Edge Node"
+
+    # AWS
+    if ip.startswith(("3.", "13.", "18.", "34.", "35.", "52.", "54.")):
+        return "AWS Cloud Server"
+
+    # Google Cloud
+    if ip.startswith(("34.", "35.", "66.102.", "66.249.")):
+        return "Google Cloud Server"
+
+    # Azure
+    if ip.startswith(("20.", "40.", "52.", "104.")):
+        return "Azure Cloud Server"
+
+    # Starlink
+    if ip.startswith("100."):
+        return "Starlink CGNAT"
+
+    # Generic VPN ranges (very rough)
+    if ip.startswith(("5.", "37.", "45.", "91.", "95.", "185.")):
+        return "Possible VPN Provider"
+
+    return "Public Client or Unknown Proxy"
+
+
+# -----------------------------
+#  Session Setup
+# -----------------------------
+
 @app.before_request
 def assign_ip_as_username():
     if "username" not in session:
         session["username"] = get_client_ip()
 
 
+# -----------------------------
+#  Routes
+# -----------------------------
+
 @app.route("/")
 def index():
-    ip = request.headers.get("X-Forwarded-For", request.remote_addr)
+    raw_chain = request.headers.get("X-Forwarded-For") or request.remote_addr
+    chain = [ip.strip() for ip in raw_chain.split(",")]
+    annotated_chain = [(hop, annotate_ip(hop)) for hop in chain]
+
+    ip = chain[0]
     session["name"] = ip
 
     info = lookup_ip_info(ip)
+
+    # Log visitor
+    visitors.append({
+        "ip": ip,
+        "info": info,
+        "chain": annotated_chain,
+        "timestamp": datetime.utcnow()
+    })
 
     return render_template(
         "index.html",
         info=info,
         name=ip,
+        chain=annotated_chain,
         city=info.get("city"),
         region=info.get("region"),
         country=info.get("country"),
-        isp=info.get("connection", {}).get("isp"),
-        vpn=info.get("security", {}).get("vpn"),
+        isp=info.get("org"),
+        vpn=info.get("security", {}).get("vpn") if "security" in info else None,
     )
 
 
@@ -50,9 +119,9 @@ def dashboard():
     return render_template("dashboard.html", visitors=visitors)
 
 
+# -----------------------------
+#  Deploy
+# -----------------------------
 
-#Deploy
 if __name__ == "__main__":
-    #Listen on all interfaces, port 5000
     app.run(host="0.0.0.0", port=5000)
-
