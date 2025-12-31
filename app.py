@@ -1,13 +1,14 @@
 from flask import Flask, request, session, render_template
 import requests
-import psycopg2
-import psycopg2.extras
 import json
 import os
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key"
+
+# Fallback in-memory storage if database is not available
+visitors_fallback = []
 
 # Database connection from environment variable
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -16,39 +17,64 @@ DATABASE_URL = os.environ.get("DATABASE_URL")
 ip_cache = {}
 CACHE_DURATION = timedelta(hours=1)  # Cache results for 1 hour
 
+# Optional database support
+try:
+    import psycopg2
+    import psycopg2.extras
+    DB_AVAILABLE = True
+except ImportError:
+    DB_AVAILABLE = False
+    print("Warning: psycopg2 not available, running without database")
+
 def get_db_connection():
     """Create a database connection"""
-    conn = psycopg2.connect(DATABASE_URL)
-    return conn
+    if not DB_AVAILABLE or not DATABASE_URL:
+        return None
+    try:
+        return psycopg2.connect(DATABASE_URL)
+    except Exception as e:
+        print(f"Database connection failed: {e}")
+        return None
 
 def init_db():
     """Initialize database schema"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS visitors (
-            id SERIAL PRIMARY KEY,
-            ip TEXT NOT NULL,
-            city TEXT,
-            region TEXT,
-            country TEXT,
-            org TEXT,
-            asn TEXT,
-            asn_info TEXT,
-            vpn TEXT,
-            chain TEXT,
-            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-    # Add asn_info column if it doesn't exist (for existing databases)
-    try:
-        cursor.execute("ALTER TABLE visitors ADD COLUMN IF NOT EXISTS asn_info TEXT")
-        conn.commit()
-    except Exception as e:
-        print(f"Column addition warning: {e}")
-    cursor.close()
-    conn.close()
+    if not DB_AVAILABLE or not DATABASE_URL:
+        print("Database not configured, skipping initialization")
+        return
 
+    conn = get_db_connection()
+    if not conn:
+        return
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS visitors (
+                id SERIAL PRIMARY KEY,
+                ip TEXT NOT NULL,
+                city TEXT,
+                region TEXT,
+                country TEXT,
+                org TEXT,
+                asn TEXT,
+                asn_info TEXT,
+                vpn TEXT,
+                chain TEXT,
+                timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # Add asn_info column if it doesn't exist (for existing databases)
+        try:
+            cursor.execute("ALTER TABLE visitors ADD COLUMN IF NOT EXISTS asn_info TEXT")
+            conn.commit()
+        except Exception as e:
+            print(f"Column addition warning: {e}")
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Database initialization error: {e}")
+
+# Try to initialize database
 try:
     init_db()
 except Exception as e:
@@ -272,30 +298,44 @@ def index():
 
     info = lookup_ip_info(ip)
 
-    # Log visitor to database
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO visitors (ip, city, region, country, org, asn, asn_info, vpn, chain)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
-            ip,
-            info.get("city"),
-            info.get("region"),
-            info.get("country"),
-            info.get("org"),
-            info.get("asn"),
-            json.dumps(info.get("asn_info")) if info.get("asn_info") else None,
-            info.get("security", {}).get("vpn") if "security" in info else None,
-            json.dumps(annotated_chain)
-        ))
-        conn.commit()
-        cursor.close()
-        conn.close()
-    except Exception as e:
-        print(f"Database error logging visitor: {e}")
-        # Continue serving the page even if database fails
+    # Log visitor to database (optional)
+    if DB_AVAILABLE and DATABASE_URL:
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO visitors (ip, city, region, country, org, asn, asn_info, vpn, chain)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                """, (
+                    ip,
+                    info.get("city"),
+                    info.get("region"),
+                    info.get("country"),
+                    info.get("org"),
+                    info.get("asn"),
+                    json.dumps(info.get("asn_info")) if info.get("asn_info") else None,
+                    info.get("security", {}).get("vpn") if "security" in info else None,
+                    json.dumps(annotated_chain)
+                ))
+                conn.commit()
+                cursor.close()
+                conn.close()
+        except Exception as e:
+            print(f"Database error logging visitor: {e}")
+            # Continue serving the page even if database fails
+
+    # Fallback: always store in memory for immediate access
+    visitor_record = {
+        "ip": ip,
+        "info": info.copy(),
+        "chain": annotated_chain,
+        "timestamp": datetime.utcnow()
+    }
+    visitors_fallback.append(visitor_record)
+    # Keep only last 100 visitors in memory
+    if len(visitors_fallback) > 100:
+        visitors_fallback.pop(0)
 
     return render_template(
         "index.html",
@@ -313,51 +353,50 @@ def index():
 
 @app.route("/dashboard")
 def dashboard():
-    try:
-        conn = get_db_connection()
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT * FROM visitors ORDER BY timestamp DESC")
-        rows = cursor.fetchall()
-        cursor.close()
-        conn.close()
+    visitors = []
 
-        # Convert rows to dictionaries with parsed chain data
-        visitors = []
-        for row in rows:
-            try:
-                chain_data = json.loads(row["chain"]) if row["chain"] else []
-            except:
-                chain_data = []
-            
-            visitor = {
-                "ip": row["ip"],
-                "info": {
-                    "city": row["city"],
-                    "region": row["region"],
-                    "country": row["country"],
-                    "org": row["org"],
-                    "asn": row["asn"],
-                },
-                "chain": chain_data,
-                "timestamp": row["timestamp"]
-            }
-            # Add ASN info if available
-            if row["asn_info"]:
-                try:
-                    visitor["info"]["asn_info"] = json.loads(row["asn_info"])
-                except:
-                    pass
-            visitors.append(visitor)
-    except Exception as e:
-        print(f"Database error loading visitors: {e}")
-        visitors = []
+    if DB_AVAILABLE and DATABASE_URL:
+        try:
+            conn = get_db_connection()
+            if conn:
+                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                cursor.execute("SELECT * FROM visitors ORDER BY timestamp DESC")
+                rows = cursor.fetchall()
+                cursor.close()
+                conn.close()
+
+                # Convert rows to dictionaries with parsed chain data
+                for row in rows:
+                    try:
+                        chain_data = json.loads(row["chain"]) if row["chain"] else []
+                    except:
+                        chain_data = []
+
+                    visitor = {
+                        "ip": row["ip"],
+                        "info": {
+                            "city": row["city"],
+                            "region": row["region"],
+                            "country": row["country"],
+                            "org": row["org"],
+                            "asn": row["asn"],
+                        },
+                        "chain": chain_data,
+                        "timestamp": row["timestamp"]
+                    }
+                    # Add ASN info if available
+                    if row["asn_info"]:
+                        try:
+                            visitor["info"]["asn_info"] = json.loads(row["asn_info"])
+                        except:
+                            pass
+                    visitors.append(visitor)
+        except Exception as e:
+            print(f"Database error loading visitors: {e}")
+            # Fall back to in-memory storage
+            visitors = visitors_fallback.copy()
+    else:
+        # No database available, use in-memory storage
+        visitors = visitors_fallback.copy()
 
     return render_template("dashboard.html", visitors=visitors)
-
-
-# -----------------------------
-#  Deploy
-# -----------------------------
-
-if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
