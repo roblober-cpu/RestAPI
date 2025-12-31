@@ -13,6 +13,43 @@
             margin: 0 auto;
             padding: 20px;
         }
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+        }
+        .auth-links {
+            display: flex;
+            gap: 15px;
+        }
+        .auth-links a {
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            background: #34495e;
+            transition: background 0.3s;
+        }
+        .auth-links a:hover {
+            background: #2980b9;
+        }
+        .user-info {
+            background: #d4edda;
+            color: #155724;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+            border: 1px solid #c3e6cb;
+        }
         #network-map {
             height: 500px;
             width: 100%;
@@ -50,9 +87,52 @@
         .hop-icon {
             margin-right: 8px;
         }
+        .auth-challenge {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .auth-challenge h4 {
+            margin-top: 0;
+            color: #856404;
+        }
+        .auth-success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .auth-failure {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
     </style>
 </head>
 <body>
+
+    <div class="header">
+        <h1><i class="fas fa-globe"></i> Network Visitor Tracker</h1>
+        <div class="auth-links">
+            <a href="/login"><i class="fas fa-sign-in-alt"></i> Login</a>
+            <a href="/register"><i class="fas fa-user-plus"></i> Register</a>
+            <a href="/dashboard"><i class="fas fa-chart-bar"></i> Dashboard</a>
+        </div>
+    </div>
+
+    {% if session.authenticated %}
+    <div class="user-info">
+        <i class="fas fa-user-check"></i> <strong>Welcome back, {{ session.user_email }}!</strong>
+        <a href="/logout" style="float: right; color: #155724;"><i class="fas fa-sign-out-alt"></i> Logout</a>
+    </div>
+    {% endif %}
 
     <h1>Welcome, {{ name }}!</h1>
     {% if info.get('proxy_analysis') %}
@@ -105,6 +185,36 @@
 
     <h3>Network Path</h3>
 
+    <!-- Geographic Authentication Challenge -->
+    <div id="authChallenge" class="auth-challenge">
+        <h4><i class="fas fa-map-marker-alt"></i> Geographic Authentication Challenge</h4>
+        <p style="margin-bottom: 10px;"><strong>Where is Granny's driveway?</strong></p>
+        <ul style="margin: 0; padding-left: 20px;">
+            <li>Click on the map at the correct location</li>
+            <li>You need to click very close to the exact spot (within 20 meters)</li>
+            <li>No visual clues are provided - you must know or find the location</li>
+            <li>If correct, you'll see a welcome message</li>
+            <li>If incorrect, try clicking closer to the right location</li>
+        </ul>
+        <p style="margin-top: 10px; font-size: 14px; color: #6c757d;">
+            <em>💡 Tip: This is a demonstration of geographic authentication. For real applications, consider using our <a href="/register" style="color: #007bff;">user registration system</a> with geographic passwords.</em>
+        </p>
+    </div>
+
+    <!-- Authentication Status Messages -->
+    <div id="authSuccess" class="auth-success" style="display: none;">
+        <h4><i class="fas fa-check-circle"></i> Geographic Authentication Successful!</h4>
+        <p>You found Granny's driveway! Geographic authentication completed.</p>
+    </div>
+
+    <div id="authFailure" class="auth-failure" style="display: none;">
+        <h4><i class="fas fa-times-circle"></i> Authentication Failed</h4>
+        <p>The location you clicked is not correct. Try clicking closer to the right location.</p>
+        <p style="margin-top: 10px; font-size: 14px;">
+            <em>💡 For persistent authentication, <a href="/register" style="color: #721c24;">create an account</a> with your own geographic password.</em>
+        </p>
+    </div>
+
     <!-- Map Legend -->
     <div class="map-legend">
         <strong>Network Classification:</strong><br>
@@ -144,8 +254,13 @@
         // Network path data from Flask
         const networkPath = {{ enhanced_chain | tojson }};
 
+        // Geographic authentication variables
+        let correctLocation = null;
+        let authenticationActive = false;
+        let authMarker = null;
+
         // Initialize map
-        const map = L.map('network-map').setView([20, 0], 2); // Centered on world
+        const map = L.map('network-map').setView([20, 0], 2); // Start with world view, will center on user location
 
         // Add OpenStreetMap tiles
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -173,6 +288,120 @@
                 iconAnchor: [10, 10]
             });
         }
+
+        // Calculate distance between two points (in kilometers)
+        function calculateDistance(lat1, lng1, lat2, lng2) {
+            const R = 6371; // Earth's radius in kilometers
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLng = (lng2 - lng1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                     Math.sin(dLng/2) * Math.sin(dLng/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // Geographic authentication function
+        function initializeGeographicAuth() {
+            // Set the correct location to Granny's driveway
+            correctLocation = {
+                lat: 39.14662374973502,
+                lng: -93.88223955845123,
+                city: "Granny's Driveway",
+                country: "United States"
+            };
+
+            authenticationActive = true;
+
+            // Center map on user's location (from IP) instead of the target
+            let userLocation = null;
+            for (const hop of networkPath) {
+                if (hop.coords && hop.coords.lat && hop.coords.lng && hop.ip !== '127.0.0.1') {
+                    userLocation = hop.coords;
+                    break;
+                }
+            }
+
+            if (userLocation) {
+                map.setView([userLocation.lat, userLocation.lng], 10);
+            }
+
+            // No visual clues - just the question!
+            console.log('Geographic authentication initialized. Where is Granny\'s driveway?');
+        }
+
+        // Handle map clicks for geographic authentication
+        map.on('click', function(e) {
+            if (!authenticationActive || !correctLocation) return;
+
+            const clickedLat = e.latlng.lat;
+            const clickedLng = e.latlng.lng;
+            const distance = calculateDistance(clickedLat, clickedLng, correctLocation.lat, correctLocation.lng);
+
+            // Check if click is within 20 meters of correct location (very precise for driveway)
+            if (distance <= 0.02) { // 0.02 km = 20 meters
+                // Success! Show welcome message and update UI
+                L.popup()
+                    .setLatLng([clickedLat, clickedLng])
+                    .setContent(`
+                        <div style="text-align: center; padding: 10px;">
+                            <h3 style="color: #28a745; margin: 0;">🎉 Welcome, Rob!</h3>
+                            <p style="margin: 5px 0;">You found Granny's driveway!</p>
+                            <small>Geographic authentication successful</small>
+                        </div>
+                    `)
+                    .openOn(map);
+
+                // Update UI
+                document.getElementById('authChallenge').style.display = 'none';
+                document.getElementById('authSuccess').style.display = 'block';
+                document.getElementById('authFailure').style.display = 'none';
+
+                // Disable further authentication
+                authenticationActive = false;
+
+                // Add success marker
+                L.marker([clickedLat, clickedLng], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-check-circle" style="color: #28a745; font-size: 24px;"></i>',
+                        className: 'auth-success-icon',
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    })
+                }).addTo(map);
+
+                console.log('Geographic authentication successful! Found Granny\'s driveway.');
+            } else {
+                // Wrong location - show failure message and hint
+                L.popup()
+                    .setLatLng([clickedLat, clickedLng])
+                    .setContent(`
+                        <div style="text-align: center; padding: 10px;">
+                            <h4 style="color: #dc3545; margin: 0;">❌ Not Quite Right</h4>
+                            <p style="margin: 5px 0;">That's not Granny's driveway</p>
+                            <small>Distance: ${Math.round(distance * 1000)} meters away</small>
+                        </div>
+                    `)
+                    .openOn(map);
+
+                // Update UI
+                document.getElementById('authChallenge').style.display = 'none';
+                document.getElementById('authFailure').style.display = 'block';
+                document.getElementById('authSuccess').style.display = 'none';
+
+                // Add failure marker
+                L.marker([clickedLat, clickedLng], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-times-circle" style="color: #dc3545; font-size: 20px;"></i>',
+                        className: 'auth-failure-icon',
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10]
+                    })
+                }).addTo(map);
+
+                console.log(`Incorrect location clicked. Distance: ${Math.round(distance * 1000)} meters`);
+            }
+        });
 
         // Add markers and lines
         let markers = [];
@@ -226,6 +455,9 @@
             // Just one point, center on it
             map.setView(validCoords[0], 10);
         }
+
+        // Initialize geographic authentication after map is set up
+        setTimeout(initializeGeographicAuth, 1000);
 
         // Add scale control
         L.control.scale().addTo(map);

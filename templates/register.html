@@ -1,0 +1,333 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Register - Visitor Tracker</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            overflow: hidden;
+        }
+        .header {
+            background: #2c3e50;
+            color: white;
+            padding: 20px;
+            text-align: center;
+        }
+        .form-section {
+            padding: 30px;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #333;
+        }
+        input[type="email"], input[type="tel"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            box-sizing: border-box;
+        }
+        input[type="email"]:focus, input[type="tel"]:focus {
+            border-color: #667eea;
+            outline: none;
+        }
+        .map-section {
+            margin-top: 20px;
+        }
+        #map {
+            height: 300px;
+            border-radius: 5px;
+            border: 2px solid #ddd;
+        }
+        .instructions {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+            border-left: 4px solid #667eea;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            padding: 12px 30px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            width: 100%;
+            margin-top: 10px;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .verification-section {
+            display: none;
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 5px;
+        }
+        .verification-inputs {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+        .verification-inputs input {
+            flex: 1;
+            padding: 10px;
+            border: 2px solid #ddd;
+            border-radius: 5px;
+            font-size: 16px;
+            text-align: center;
+        }
+        .message {
+            margin-top: 15px;
+            padding: 10px;
+            border-radius: 5px;
+            display: none;
+        }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .loading { display: none; text-align: center; margin-top: 20px; }
+        .back-link {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .back-link a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .back-link a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1><i class="fas fa-user-plus"></i> Create Account</h1>
+            <p>Register with geographic password authentication</p>
+        </div>
+
+        <div class="form-section">
+            <form id="registerForm">
+                <div class="form-group">
+                    <label for="email">Email Address</label>
+                    <input type="email" id="email" required placeholder="your@email.com">
+                </div>
+
+                <div class="form-group">
+                    <label for="phone">Phone Number</label>
+                    <input type="tel" id="phone" required placeholder="+1 (555) 123-4567">
+                </div>
+
+                <div class="map-section">
+                    <label>Choose Your Geographic Password</label>
+                    <div class="instructions">
+                        <strong>Instructions:</strong> Click on the map to set your geographic password location.
+                        This will be your secret location that you'll need to click on to log in.
+                        Choose a memorable location that you can easily find again.
+                    </div>
+                    <div id="map"></div>
+                    <input type="hidden" id="geo_password_lat" name="geo_password_lat">
+                    <input type="hidden" id="geo_password_lng" name="geo_password_lng">
+                    <div id="selectedLocation" style="margin-top: 10px; font-weight: bold; color: #667eea;"></div>
+                </div>
+
+                <button type="submit" class="btn" id="registerBtn">Send Verification Codes</button>
+            </form>
+
+            <div class="verification-section" id="verificationSection">
+                <h3>Verify Your Account</h3>
+                <p>We've sent verification codes to your email and phone. Enter them below:</p>
+
+                <div class="verification-inputs">
+                    <input type="text" id="emailCode" placeholder="Email Code" maxlength="6">
+                    <input type="text" id="smsCode" placeholder="SMS Code" maxlength="6">
+                </div>
+
+                <button type="button" class="btn" id="verifyBtn">Verify Account</button>
+            </div>
+
+            <div class="loading" id="loading">
+                <i class="fas fa-spinner fa-spin"></i> Processing...
+            </div>
+
+            <div class="message" id="message"></div>
+        </div>
+
+        <div class="back-link">
+            <a href="/"><i class="fas fa-arrow-left"></i> Back to Home</a>
+        </div>
+    </div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        let map;
+        let selectedMarker = null;
+
+        // Initialize map
+        function initMap() {
+            map = L.map('map').setView([39.8283, -98.5795], 4); // Center of US
+
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            map.on('click', function(e) {
+                setGeographicPassword(e.latlng.lat, e.latlng.lng);
+            });
+        }
+
+        function setGeographicPassword(lat, lng) {
+            // Remove existing marker
+            if (selectedMarker) {
+                map.removeLayer(selectedMarker);
+            }
+
+            // Add new marker
+            selectedMarker = L.marker([lat, lng]).addTo(map);
+            selectedMarker.bindPopup("Your Geographic Password Location").openPopup();
+
+            // Update hidden inputs
+            document.getElementById('geo_password_lat').value = lat;
+            document.getElementById('geo_password_lng').value = lng;
+
+            // Update display
+            document.getElementById('selectedLocation').textContent =
+                `Selected: ${lat.toFixed(6)}, ${lng.toFixed(6)}`;
+
+            // Enable register button
+            document.getElementById('registerBtn').disabled = false;
+        }
+
+        // Form submission
+        document.getElementById('registerForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+
+            const email = document.getElementById('email').value;
+            const phone = document.getElementById('phone').value;
+            const lat = document.getElementById('geo_password_lat').value;
+            const lng = document.getElementById('geo_password_lng').value;
+
+            if (!lat || !lng) {
+                showMessage('Please select a geographic password location on the map.', 'error');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        phone: phone,
+                        geo_password_lat: parseFloat(lat),
+                        geo_password_lng: parseFloat(lng)
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    document.getElementById('verificationSection').style.display = 'block';
+                    document.getElementById('registerForm').style.display = 'none';
+                } else {
+                    showMessage(data.message, 'error');
+                }
+            } catch (error) {
+                showMessage('Registration failed. Please try again.', 'error');
+            }
+
+            showLoading(false);
+        });
+
+        // Verification
+        document.getElementById('verifyBtn').addEventListener('click', async function() {
+            const email = document.getElementById('email').value;
+            const emailCode = document.getElementById('emailCode').value;
+            const smsCode = document.getElementById('smsCode').value;
+
+            if (!emailCode || !smsCode) {
+                showMessage('Please enter both verification codes.', 'error');
+                return;
+            }
+
+            showLoading(true);
+
+            try {
+                const response = await fetch('/api/verify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        email: email,
+                        email_code: emailCode,
+                        sms_code: smsCode
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    showMessage(data.message, 'success');
+                    setTimeout(() => {
+                        window.location.href = '/profile';
+                    }, 2000);
+                } else {
+                    showMessage(data.message, 'error');
+                }
+            } catch (error) {
+                showMessage('Verification failed. Please try again.', 'error');
+            }
+
+            showLoading(false);
+        });
+
+        function showMessage(message, type) {
+            const messageDiv = document.getElementById('message');
+            messageDiv.textContent = message;
+            messageDiv.className = `message ${type}`;
+            messageDiv.style.display = 'block';
+        }
+
+        function showLoading(show) {
+            document.getElementById('loading').style.display = show ? 'block' : 'none';
+        }
+
+        // Initialize map when page loads
+        initMap();
+    </script>
+</body>
+</html>

@@ -3,12 +3,25 @@ import requests
 import json
 import os
 from datetime import datetime, timedelta
+import re
+import hashlib
+import secrets
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key"
 
 # Fallback in-memory storage if database is not available
 visitors_fallback = []
+
+# User management (fallback to in-memory when database not available)
+users_db = {}  # Fallback in-memory storage
+pending_registrations = {}  # Fallback in-memory storage for pending registrations
+
+# Database connection from environment variable
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 # Database connection from environment variable
 DATABASE_URL = os.environ.get("DATABASE_URL")
@@ -69,6 +82,41 @@ def init_db():
             conn.commit()
         except Exception as e:
             print(f"Column addition warning: {e}")
+
+        # Create users table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                phone TEXT,
+                password_hash TEXT NOT NULL,
+                geo_password_lat DOUBLE PRECISION,
+                geo_password_lng DOUBLE PRECISION,
+                network_org TEXT,
+                network_asn TEXT,
+                network_ip TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                last_login TIMESTAMP,
+                email_verified BOOLEAN DEFAULT FALSE,
+                phone_verified BOOLEAN DEFAULT FALSE
+            )
+        """)
+
+        # Create pending_registrations table
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS pending_registrations (
+                id SERIAL PRIMARY KEY,
+                email TEXT UNIQUE NOT NULL,
+                phone TEXT,
+                geo_password_lat DOUBLE PRECISION,
+                geo_password_lng DOUBLE PRECISION,
+                email_code TEXT NOT NULL,
+                sms_code TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL
+            )
+        """)
+
         cursor.close()
         conn.close()
     except Exception as e:
@@ -81,6 +129,191 @@ except Exception as e:
     print(f"Database initialization error: {e}")
     # Continue running even if DB init fails
 
+
+# -----------------------------
+#  Database User Management
+# -----------------------------
+
+def db_create_user(email, phone, password_hash, geo_lat, geo_lng, network_org, network_asn, network_ip):
+    """Create a new user in the database or fallback to in-memory"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        users_db[email] = {
+            "email": email,
+            "phone": phone,
+            "password_hash": password_hash,
+            "geo_password_lat": geo_lat,
+            "geo_password_lng": geo_lng,
+            "network_org": network_org,
+            "network_asn": network_asn,
+            "network_ip": network_ip,
+            "created_at": datetime.utcnow(),
+            "last_login": None,
+            "email_verified": False,
+            "phone_verified": False
+        }
+        return True
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO users (email, phone, password_hash, geo_password_lat, geo_password_lng,
+                             network_org, network_asn, network_ip)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (email, phone, password_hash, geo_lat, geo_lng, network_org, network_asn, network_ip))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Database user creation error: {e}")
+        return False
+
+def db_get_user_by_email(email):
+    """Get user data by email from database or fallback"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        return users_db.get(email)
+
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
+        user = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return dict(user) if user else None
+    except Exception as e:
+        print(f"Database user lookup error: {e}")
+        return None
+
+def db_update_user_login(email):
+    """Update user's last login timestamp"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        if email in users_db:
+            users_db[email]['last_login'] = datetime.utcnow()
+        return True
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE email = %s", (email,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Database user update error: {e}")
+        return False
+
+def db_create_pending_registration(email, phone, geo_lat, geo_lng, email_code, sms_code, expires_at):
+    """Create a pending registration"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        pending_registrations[email] = {
+            "email": email,
+            "phone": phone,
+            "geo_password_lat": geo_lat,
+            "geo_password_lng": geo_lng,
+            "email_code": email_code,
+            "sms_code": sms_code,
+            "expires_at": expires_at
+        }
+        return True
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO pending_registrations (email, phone, geo_password_lat, geo_password_lng,
+                                             email_code, sms_code, expires_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """, (email, phone, geo_lat, geo_lng, email_code, sms_code, expires_at))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Database pending registration creation error: {e}")
+        return False
+
+def db_get_pending_registration(email):
+    """Get pending registration by email"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        return pending_registrations.get(email)
+
+    conn = get_db_connection()
+    if not conn:
+        return None
+
+    try:
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("SELECT * FROM pending_registrations WHERE email = %s", (email,))
+        reg = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return dict(reg) if reg else None
+    except Exception as e:
+        print(f"Database pending registration lookup error: {e}")
+        return None
+
+def db_delete_pending_registration(email):
+    """Delete pending registration"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        pending_registrations.pop(email, None)
+        return True
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM pending_registrations WHERE email = %s", (email,))
+        conn.commit()
+        cursor.close()
+        conn.close()
+        return True
+    except Exception as e:
+        print(f"Database pending registration deletion error: {e}")
+        return False
+
+def db_check_user_exists(email):
+    """Check if user exists"""
+    if not DB_AVAILABLE:
+        # Fallback to in-memory storage
+        return email in users_db
+
+    conn = get_db_connection()
+    if not conn:
+        return False
+
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT 1 FROM users WHERE email = %s", (email,))
+        exists = cursor.fetchone() is not None
+        cursor.close()
+        conn.close()
+        return exists
+    except Exception as e:
+        print(f"Database user existence check error: {e}")
+        return False
 
 
 # -----------------------------
@@ -405,6 +638,71 @@ def enhanced_vpn_detection(info, asn_category, proxy_info):
         'method': 'Insufficient Data',
         'reason': 'Cannot determine VPN status'
     }
+
+
+# -----------------------------
+#  User Management Functions
+# -----------------------------
+
+def hash_password(password):
+    """Hash password with salt"""
+    salt = secrets.token_hex(16)
+    hashed = hashlib.sha256((password + salt).encode()).hexdigest()
+    return f"{salt}:{hashed}"
+
+def verify_password(stored_hash, password):
+    """Verify password against stored hash"""
+    try:
+        salt, hashed = stored_hash.split(':')
+        return hashlib.sha256((password + salt).encode()).hexdigest() == hashed
+    except:
+        return False
+
+def send_verification_email(email, code):
+    """Send verification email (mock implementation)"""
+    try:
+     # In production, configure actual SMTP
+        print(f"VERIFICATION EMAIL TO {email}: Code is {code}")
+        return True
+    except Exception as e:
+        print(f"Email sending failed: {e}")
+        return False
+
+def send_sms_verification(phone, code):
+    """Send SMS verification (mock implementation)"""
+    try:
+        # In production, integrate with SMS service like Twilio
+        print(f"VERIFICATION SMS TO {phone}: Code is {code}")
+        return True
+    except Exception as e:
+        print(f"SMS sending failed: {e}")
+        return False
+
+def validate_email(email):
+    """Basic email validation"""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def validate_phone(phone):
+    """Basic phone validation (US format)"""
+    # Remove all non-digit characters
+    digits = re.sub(r'\D', '', phone)
+    return len(digits) == 10 or (len(digits) == 11 and digits[0] == '1')
+
+def check_network_context(user_data, current_ip_info):
+    """Check if user is on the same network they registered with"""
+    current_org = current_ip_info.get('org', '')
+    current_asn = current_ip_info.get('asn', '')
+
+    # Check if ISP/ASN matches stored values
+    isp_match = user_data.get('network_org') == current_org
+    asn_match = user_data.get('network_asn') == current_asn
+
+    return isp_match or asn_match  # Allow if either matches
+
+def generate_verification_code():
+    """Generate 6-digit verification code"""
+    return ''.join(secrets.choice('0123456789') for _ in range(6))
 
 
 def annotate_ip(ip):
@@ -763,6 +1061,245 @@ def dashboard():
     except Exception as e:
         print(f"Unexpected error in dashboard route: {e}")
         return f"<h1>Dashboard Error</h1><p>Something went wrong: {str(e)}</p>", 500
+
+
+# -----------------------------
+#  User Authentication Routes
+# -----------------------------
+
+@app.route("/register")
+def register():
+    """Show user registration form"""
+    return render_template("register.html")
+
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    """Handle user registration"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        phone = data.get('phone', '').strip()
+        geo_password_lat = data.get('geo_password_lat')
+        geo_password_lng = data.get('geo_password_lng')
+
+        # Validate inputs
+        if not validate_email(email):
+            return {"success": False, "message": "Invalid email address"}, 400
+
+        if not validate_phone(phone):
+            return {"success": False, "message": "Invalid phone number"}, 400
+
+        if not geo_password_lat or not geo_password_lng:
+            return {"success": False, "message": "Geographic password location required"}, 400
+
+        # Check if user already exists
+        if db_check_user_exists(email):
+            return {"success": False, "message": "User already exists"}, 400
+
+        # Generate verification codes
+        email_code = generate_verification_code()
+        sms_code = generate_verification_code()
+
+        # Store pending registration
+        expires_at = datetime.utcnow() + timedelta(minutes=15)
+        if not db_create_pending_registration(email, phone, geo_password_lat, geo_password_lng,
+                                           email_code, sms_code, expires_at):
+            return {"success": False, "message": "Failed to create registration"}, 500
+
+        # Send verification codes
+        if not send_verification_email(email, email_code):
+            return {"success": False, "message": "Failed to send email verification"}, 500
+
+        if not send_sms_verification(phone, sms_code):
+            return {"success": False, "message": "Failed to send SMS verification"}, 500
+
+        return {"success": True, "message": "Verification codes sent. Check your email and phone."}
+
+    except Exception as e:
+        print(f"Registration error: {e}")
+        return {"success": False, "message": "Registration failed"}, 500
+
+@app.route("/api/verify", methods=["POST"])
+def api_verify():
+    """Verify user registration codes"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        email_code = data.get('email_code', '').strip()
+        sms_code = data.get('sms_code', '').strip()
+
+        reg_data = db_get_pending_registration(email)
+        if not reg_data:
+            return {"success": False, "message": "No pending registration found"}, 400
+
+        # Check expiration
+        if datetime.utcnow() > reg_data['expires_at']:
+            db_delete_pending_registration(email)
+            return {"success": False, "message": "Verification codes expired"}, 400
+
+        # Verify codes
+        if reg_data['email_code'] != email_code or reg_data['sms_code'] != sms_code:
+            return {"success": False, "message": "Invalid verification codes"}, 400
+
+        # Get current network context for additional security
+        current_ip = get_client_ip()
+        current_info = lookup_ip_info(current_ip)
+
+        # Create user account
+        password_hash = hash_password(generate_verification_code())  # Temporary password
+        if not db_create_user(
+            email,
+            reg_data['phone'],
+            password_hash,
+            reg_data['geo_password_lat'],
+            reg_data['geo_password_lng'],
+            current_info.get('org'),
+            current_info.get('asn'),
+            current_ip
+        ):
+            return {"success": False, "message": "Failed to create account"}, 500
+
+        # Clean up pending registration
+        db_delete_pending_registration(email)
+
+        # Log them in
+        session['user_email'] = email
+        session['authenticated'] = True
+
+        return {"success": True, "message": "Account created successfully!"}
+
+    except Exception as e:
+        print(f"Verification error: {e}")
+        return {"success": False, "message": "Verification failed"}, 500
+
+@app.route("/login")
+def login():
+    """Show login form"""
+    return render_template("login.html")
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    """Handle user login"""
+    try:
+        data = request.get_json()
+        email = data.get('email', '').strip()
+        geo_lat = data.get('geo_lat')
+        geo_lng = data.get('geo_lng')
+
+        user_data = db_get_user_by_email(email)
+        if not user_data:
+            return {"success": False, "message": "User not found"}, 404
+
+        # Check geographic password
+        stored_geo = {
+            'lat': user_data['geo_password_lat'],
+            'lng': user_data['geo_password_lng']
+        }
+        distance = calculate_distance(
+            float(geo_lat), float(geo_lng),
+            stored_geo['lat'], stored_geo['lng']
+        )
+
+        if distance > 0.1:  # Within 100 meters
+            return {"success": False, "message": "Incorrect geographic password"}, 401
+
+        # Check network context
+        current_ip = get_client_ip()
+        current_info = lookup_ip_info(current_ip)
+
+        if not check_network_context(user_data, current_info):
+            # Network context changed - require additional verification
+            session['pending_user'] = email
+            session['network_verification_required'] = True
+            return {
+                "success": False,
+                "message": "Network context changed. Additional verification required.",
+                "requires_additional_auth": True
+            }, 401
+
+        # Login successful
+        session['user_email'] = email
+        session['authenticated'] = True
+        db_update_user_login(email)
+
+        return {"success": True, "message": "Login successful!"}
+
+    except Exception as e:
+        print(f"Login error: {e}")
+        return {"success": False, "message": "Login failed"}, 500
+
+@app.route("/api/network_verify", methods=["POST"])
+def api_network_verify():
+    """Handle additional network verification"""
+    try:
+        if not session.get('network_verification_required'):
+            return {"success": False, "message": "No network verification required"}, 400
+
+        email = session.get('pending_user')
+        if not email:
+            return {"success": False, "message": "Invalid session"}, 400
+
+        user_data = db_get_user_by_email(email)
+        if not user_data:
+            return {"success": False, "message": "User not found"}, 400
+
+        data = request.get_json()
+        verification_code = data.get('code', '').strip()
+
+        # For demo, accept any 6-digit code
+        if len(verification_code) != 6 or not verification_code.isdigit():
+            return {"success": False, "message": "Invalid verification code"}, 400
+
+        # Send verification code to user's registered phone
+        code = generate_verification_code()
+        if send_sms_verification(user_data['phone'], code):
+            # In demo, we'll just check if they entered the right code
+            # In production, you'd store and verify the actual sent code
+            if verification_code == "123456":  # Demo code
+                session['user_email'] = email
+                session['authenticated'] = True
+                session.pop('pending_user', None)
+                session.pop('network_verification_required', None)
+                db_update_user_login(email)
+                return {"success": True, "message": "Network verification successful!"}
+            else:
+                return {"success": False, "message": "Incorrect verification code"}, 400
+        else:
+            return {"success": False, "message": "Failed to send verification code"}, 500
+
+    except Exception as e:
+        print(f"Network verification error: {e}")
+        return {"success": False, "message": "Verification failed"}, 500
+
+@app.route("/logout")
+def logout():
+    """Logout user"""
+    session.clear()
+    return {"success": True, "message": "Logged out"}
+
+@app.route("/profile")
+def profile():
+    """Show user profile (requires authentication)"""
+    if not session.get('authenticated'):
+        return {"error": "Authentication required"}, 401
+
+    email = session.get('user_email')
+    user_data = db_get_user_by_email(email)
+    if not user_data:
+        return {"error": "User not found"}, 404
+
+    return {
+        "email": user_data['email'],
+        "phone": user_data['phone'],
+        "created": user_data['created_at'].isoformat(),
+        "last_login": user_data['last_login'].isoformat() if user_data['last_login'] else None,
+        "network_context": {
+            "org": user_data['network_org'],
+            "asn": user_data['network_asn'],
+            "ip": user_data['network_ip']
+        }
+    }
+
 
 if __name__ == "__main__":
     app.run(debug=True, host="0.0.0.0", port=5000)
