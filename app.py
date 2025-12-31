@@ -1,12 +1,49 @@
 from flask import Flask, request, session, render_template
 import requests
+import psycopg2
+import psycopg2.extras
+import json
+import os
 from datetime import datetime
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key"
 
-# In-memory visitor log
-visitors = []
+# Database connection from environment variable
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+def get_db_connection():
+    """Create a database connection"""
+    conn = psycopg2.connect(DATABASE_URL)
+    return conn
+
+def init_db():
+    """Initialize database schema"""
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS visitors (
+            id SERIAL PRIMARY KEY,
+            ip TEXT NOT NULL,
+            city TEXT,
+            region TEXT,
+            country TEXT,
+            org TEXT,
+            asn TEXT,
+            vpn TEXT,
+            chain TEXT,
+            timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    conn.commit()
+    cursor.close()
+    conn.close()
+
+try:
+    init_db()
+except Exception as e:
+    print(f"Database initialization warning: {e}")
+
 
 
 # -----------------------------
@@ -93,13 +130,28 @@ def index():
 
     info = lookup_ip_info(ip)
 
-    # Log visitor
-    visitors.append({
-        "ip": ip,
-        "info": info,
-        "chain": annotated_chain,
-        "timestamp": datetime.utcnow()
-    })
+    # Log visitor to database
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("""
+            INSERT INTO visitors (ip, city, region, country, org, asn, vpn, chain)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+        """, (
+            ip,
+            info.get("city"),
+            info.get("region"),
+            info.get("country"),
+            info.get("org"),
+            info.get("asn"),
+            info.get("security", {}).get("vpn") if "security" in info else None,
+            json.dumps(annotated_chain)
+        ))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except Exception as e:
+        print(f"Error logging visitor: {e}")
 
     return render_template(
         "index.html",
@@ -110,12 +162,41 @@ def index():
         region=info.get("region"),
         country=info.get("country"),
         isp=info.get("org"),
+        asn=info.get("asn"),
         vpn=info.get("security", {}).get("vpn") if "security" in info else None,
     )
 
 
 @app.route("/dashboard")
 def dashboard():
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+        cursor.execute("SELECT * FROM visitors ORDER BY timestamp DESC")
+        rows = cursor.fetchall()
+        cursor.close()
+        conn.close()
+        
+        # Convert rows to dictionaries with parsed chain data
+        visitors = []
+        for row in rows:
+            visitor = {
+                "ip": row["ip"],
+                "info": {
+                    "city": row["city"],
+                    "region": row["region"],
+                    "country": row["country"],
+                    "org": row["org"],
+                    "asn": row["asn"],
+                },
+                "chain": json.loads(row["chain"]),
+                "timestamp": row["timestamp"]
+            }
+            visitors.append(visitor)
+    except Exception as e:
+        print(f"Error loading visitors: {e}")
+        visitors = []
+    
     return render_template("dashboard.html", visitors=visitors)
 
 

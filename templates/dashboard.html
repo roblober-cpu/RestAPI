@@ -49,6 +49,8 @@
 
                 <p><strong>ISP:</strong> {{ v.info.org or "Unknown" }}</p>
 
+                <p><strong>ASN:</strong> {{ v.info.asn or "Unknown" }}</p>
+
                 <p>
                     <strong>VPN Detected:</strong>
                     {% if v.info.security and v.info.security.vpn is not none %}
