@@ -6,6 +6,11 @@
 <body>
 
     <h1>Welcome, {{ name }}!</h1>
+    {% if info.get('asn_info') %}
+        <p><em>Connecting via {{ info.asn_info.name }} ({{ info.asn_info.type }})</em></p>
+    {% elif asn %}
+        <p><em>Connecting via {{ asn }}</em></p>
+    {% endif %}
     <p>This page is rendered using a Flask template.</p>
 
     <h2>Location & Network Info</h2>
