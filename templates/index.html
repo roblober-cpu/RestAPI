@@ -6,10 +6,17 @@
 <body>
 
     <h1>Welcome, {{ name }}!</h1>
+    {% if info.get('proxy_analysis') %}
+        {% if info.proxy_analysis.cloudflare_detected %}
+            <p><em>🔥 <strong>Cloudflare Protected</strong> - Enhanced security detected</em></p>
+        {% elif info.proxy_analysis.proxy_detected %}
+            <p><em>🛡️ <strong>Proxy Detected</strong> ({{ info.proxy_analysis.proxy_type }})</em></p>
+        {% endif %}
+    {% endif %}
     {% if info.get('asn_info') %}
-        <p><em>Connecting via {{ info.asn_info.name }} ({{ info.asn_info.type }})</em></p>
+        <p><em>🌐 Connecting via {{ info.asn_info.name }} ({{ info.asn_info.type }})</em></p>
     {% elif asn %}
-        <p><em>Connecting via {{ asn }}</em></p>
+        <p><em>🌐 Connecting via {{ asn }} ({{ info.asn_category }})</em></p>
     {% endif %}
     <p>This page is rendered using a Flask template.</p>
 
@@ -25,11 +32,22 @@
         <li><strong>ASN:</strong> {{ asn or "Unknown" }}
             {% if info.get('asn_info') %}
                 <br><small><em>{{ info.asn_info.name }} ({{ info.asn_info.type }})</em></small>
+            {% elif info.asn_category != "Unknown" %}
+                <br><small><em>{{ info.asn_category }}</em></small>
             {% endif %}
         </li>
-        <li><strong>VPN Detected:</strong>
-            {% if vpn is not none %}
-                {{ vpn }}
+        <li><strong>VPN Analysis:</strong>
+            {% if info.get('vpn_analysis') %}
+                {% if info.vpn_analysis.detected == True %}
+                    <span style="color: #d9534f;">🚩 Likely VPN</span>
+                    <br><small><em>{{ info.vpn_analysis.reason }} ({{ info.vpn_analysis.confidence }} confidence)</em></small>
+                {% elif info.vpn_analysis.detected == False %}
+                    <span style="color: #5cb85c;">✅ Unlikely VPN</span>
+                    <br><small><em>{{ info.vpn_analysis.reason }} ({{ info.vpn_analysis.confidence }} confidence)</em></small>
+                {% else %}
+                    <span style="color: #f0ad4e;">❓ Unknown</span>
+                    <br><small><em>{{ info.vpn_analysis.reason }}</em></small>
+                {% endif %}
             {% else %}
                 Unknown
             {% endif %}

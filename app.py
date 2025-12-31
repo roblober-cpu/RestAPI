@@ -207,7 +207,7 @@ def lookup_asn_info(asn):
 
 
 def categorize_known_asn(asn_num):
-    """Categorize well-known ASNs"""
+    """Categorize well-known ASNs with enhanced categories"""
     try:
         known_asns = {
             # Cloud Providers
@@ -217,24 +217,46 @@ def categorize_known_asn(asn_num):
             '13335': 'Cloud Provider',  # Cloudflare
             '14061': 'Cloud Provider',  # DigitalOcean
             '31898': 'Cloud Provider',  # Oracle Cloud
+            '14618': 'Cloud Provider',  # Amazon AWS
+            '8068': 'Cloud Provider',   # Microsoft Azure
 
-            # Major ISPs
-            '7018': 'Major ISP',   # AT&T
-            '701': 'Major ISP',    # Verizon
-            '7922': 'Major ISP',   # Comcast
-            '22773': 'Major ISP',  # Cox Communications
-            '11427': 'Major ISP',  # Time Warner Cable
-            '20115': 'Major ISP',  # Charter Communications
+            # Hosting Providers
+            '16276': 'Hosting Provider', # OVH
+            '24940': 'Hosting Provider', # Hetzner
+            '60781': 'Hosting Provider', # Leaseweb
+            '12876': 'Hosting Provider', # Online.net (Scaleway)
 
             # Mobile Carriers
             '21928': 'Mobile Carrier',  # T-Mobile
             '20057': 'Mobile Carrier',  # AT&T Wireless
             '6167': 'Mobile Carrier',   # Verizon Wireless
+            '21947': 'Mobile Carrier',  # T-Mobile US
+            '12041': 'Mobile Carrier',  # AT&T Wireless
 
-            # Universities
-            '73': 'Educational',    # University of Washington
-            '17': 'Educational',    # Purdue University
-            '18': 'Educational',    # University of Texas
+            # Residential ISPs
+            '7018': 'Residential',   # AT&T
+            '701': 'Residential',    # Verizon
+            '7922': 'Residential',   # Comcast
+            '22773': 'Residential',  # Cox Communications
+            '11427': 'Residential',  # Time Warner Cable
+            '20115': 'Residential',  # Charter Communications
+            '7011': 'Residential',   # Frontier Communications
+            '12271': 'Residential',  # Time Warner Cable
+
+            # VPN Providers
+            '138997': 'VPN',         # ExpressVPN
+            '48721': 'VPN',          # Mullvad VPN
+
+            # Corporate
+            '10310': 'Corporate',    # Yahoo!
+            '36646': 'Corporate',    # Yahoo
+            '17012': 'Corporate',    # PayPal
+
+            # Educational
+            '73': 'Educational',     # University of Washington
+            '17': 'Educational',     # Purdue University
+            '18': 'Educational',     # University of Texas
+            '25': 'Educational',     # University of California
         }
 
         return known_asns.get(str(asn_num), "Other/Unknown")
@@ -243,78 +265,172 @@ def categorize_known_asn(asn_num):
 
 
 def categorize_asn(name):
-    """Categorize ASN based on organization name"""
+    """Categorize ASN based on organization name with enhanced categories"""
     try:
         name_lower = name.lower()
 
         # Cloud providers
-        if any(word in name_lower for word in ['amazon', 'aws', 'google', 'microsoft', 'azure', 'cloudflare', 'digitalocean', 'linode']):
+        if any(word in name_lower for word in ['amazon', 'aws', 'google', 'microsoft', 'azure', 'cloudflare', 'digitalocean', 'linode', 'oracle cloud', 'ibm cloud']):
             return "Cloud Provider"
 
-        # Major ISPs
-        if any(word in name_lower for word in ['comcast', 'verizon', 'att', 'cox', 'spectrum', 'centurylink', 'telecom']):
-            return "Major ISP"
+        # Hosting providers
+        if any(word in name_lower for word in ['hosting', 'host', 'vps', 'dedicated', 'server', 'datacenter', 'colo', 'leaseweb', 'ovh', 'hetzner']):
+            return "Hosting Provider"
 
         # Mobile carriers
-        if any(word in name_lower for word in ['tmobile', 'verizon wireless', 'at&t wireless', 'sprint', 'vodafone', 'orange']):
+        if any(word in name_lower for word in ['tmobile', 'verizon wireless', 'at&t wireless', 'sprint', 'vodafone', 'orange', 'telecom', 'mobile', 'cellular']):
             return "Mobile Carrier"
 
-        # Universities/Education
-        if any(word in name_lower for word in ['university', 'college', 'edu', 'school', 'academy']):
+        # VPN providers
+        if any(word in name_lower for word in ['expressvpn', 'nordvpn', 'mullvad', 'protonvpn', 'surfshark', 'private internet access', 'pia']):
+            return "VPN"
+
+        # Corporate/Enterprise
+        if any(word in name_lower for word in ['corporate', 'enterprise', 'business', 'inc', 'ltd', 'corp', 'llc', 'company']):
+            return "Corporate"
+
+        # Residential ISPs (major ones)
+        if any(word in name_lower for word in ['comcast', 'verizon', 'att', 'cox', 'spectrum', 'centurylink', 'charter', 'optimum', 'mediacom']):
+            return "Residential"
+
+        # Educational
+        if any(word in name_lower for word in ['university', 'college', 'edu', 'school', 'academy', 'institute']):
             return "Educational"
 
         # Government
-        if any(word in name_lower for word in ['government', 'gov', 'ministry', 'department', 'state']):
+        if any(word in name_lower for word in ['government', 'gov', 'ministry', 'department', 'state', 'federal']):
             return "Government"
-
-        # Hosting/VPS
-        if any(word in name_lower for word in ['hosting', 'host', 'vps', 'dedicated', 'server']):
-            return "Hosting Provider"
 
         return "Other/Unknown"
     except:
         return "Other/Unknown"
+
+
+def detect_cloudflare_and_proxies(request):
+    """Enhanced detection of Cloudflare and other proxy/CDN services"""
+    headers = request.headers
+
+    # Cloudflare specific headers
+    cf_headers = [
+        'CF-Connecting-IP',      # Original client IP
+        'CF-IPCountry',          # Country code
+        'CF-RAY',                # Cloudflare ray ID
+        'CF-Visitor',            # Visitor scheme (http/https)
+        'CF-Worker',             # Cloudflare Worker
+    ]
+
+    cloudflare_detected = any(headers.get(header) for header in cf_headers)
+
+    # Other CDN/Proxy headers
+    other_proxy_headers = [
+        'X-Forwarded-For',       # Generic proxy header
+        'X-Real-IP',             # Nginx real IP
+        'X-Client-IP',           # Some proxies
+        'X-Forwarded-Proto',     # Protocol forwarding
+        'X-Forwarded-Host',      # Host forwarding
+    ]
+
+    proxy_detected = any(headers.get(header) for header in other_proxy_headers)
+
+    # Get the real client IP considering proxies
+    real_ip = None
+    if headers.get('CF-Connecting-IP'):
+        real_ip = headers.get('CF-Connecting-IP')
+    elif headers.get('X-Real-IP'):
+        real_ip = headers.get('X-Real-IP')
+    elif headers.get('X-Forwarded-For'):
+        # Take the first (original) IP from the chain
+        real_ip = headers.get('X-Forwarded-For').split(',')[0].strip()
+
+    return {
+        'cloudflare_detected': cloudflare_detected,
+        'proxy_detected': proxy_detected,
+        'real_client_ip': real_ip,
+        'proxy_type': 'Cloudflare' if cloudflare_detected else ('Proxy/CDN' if proxy_detected else 'Direct')
+    }
+
+
+def enhanced_vpn_detection(info, asn_category, proxy_info):
+    """Enhanced VPN detection with inference logic"""
+    vpn_detected = info.get("security", {}).get("vpn") if "security" in info else None
+
+    # If API already detected VPN, trust it
+    if vpn_detected:
+        return {
+            'detected': True,
+            'confidence': 'High',
+            'method': 'API Detection',
+            'reason': 'IP geolocation service flagged as VPN'
+        }
+
+    # Inference logic: If residential ISP + residential ASN + no proxy, likely not VPN
+    isp_name = info.get("org", "").lower()
+    residential_indicators = [
+        'comcast', 'verizon', 'att', 'cox', 'spectrum', 'centurylink',
+        'charter', 'optimum', 'mediacom', 'frontier'
+    ]
+
+    is_residential_isp = any(indicator in isp_name for indicator in residential_indicators)
+    is_residential_asn = asn_category == "Residential"
+
+    if is_residential_isp and is_residential_asn and not proxy_info['proxy_detected']:
+        return {
+            'detected': False,
+            'confidence': 'Medium',
+            'method': 'Inference',
+            'reason': 'Residential ISP + Residential ASN + Direct connection suggests non-VPN'
+        }
+
+    # Check for known VPN ASNs
+    if asn_category == "VPN":
+        return {
+            'detected': True,
+            'confidence': 'High',
+            'method': 'ASN Analysis',
+            'reason': 'Known VPN provider ASN'
+        }
+
+    # Check for suspicious patterns
+    if proxy_info['proxy_detected'] and not proxy_info['cloudflare_detected']:
+        return {
+            'detected': True,
+            'confidence': 'Low',
+            'method': 'Proxy Detection',
+            'reason': 'Non-Cloudflare proxy detected, possible VPN'
+        }
+
+    return {
+        'detected': None,  # Unknown
+        'confidence': 'Low',
+        'method': 'Insufficient Data',
+        'reason': 'Cannot determine VPN status'
+    }
 
 
 def annotate_ip(ip):
-    """Annotate an IP address with network information"""
+    """Annotate an IP address with basic information for display"""
     try:
-        # Private ranges
-        if ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."):
-            # More accurate private range check
-            parts = ip.split(".")
-            if parts[0] == "172" and 16 <= int(parts[1]) <= 31:
-                return "Private Network / Load Balancer"
-            if parts[0] in ("10", "192"):
-                return "Private Network / Load Balancer"
+        # Skip lookup for private IPs
+        if ip.startswith(('127.', '192.168.', '10.', '172.')):
+            return "Private/Local IP"
 
-        # Cloudflare
-        if ip.startswith(("104.", "172.64.", "188.114.")):
-            return "Cloudflare Edge Node"
+        # Quick lookup (cached)
+        info = lookup_ip_info(ip)
+        if info.get('error'):
+            return "Lookup failed"
 
-        # AWS
-        if ip.startswith(("3.", "13.", "18.", "34.", "35.", "52.", "54.")):
-            return "AWS Cloud Server"
+        # Format annotation
+        parts = []
+        if info.get('city'):
+            parts.append(info['city'])
+        if info.get('org'):
+            parts.append(info['org'])
+        if info.get('asn'):
+            parts.append(info['asn'])
 
-        # Google Cloud
-        if ip.startswith(("34.", "35.", "66.102.", "66.249.")):
-            return "Google Cloud Server"
-
-        # Azure
-        if ip.startswith(("20.", "40.", "52.", "104.")):
-            return "Azure Cloud Server"
-
-        # Starlink
-        if ip.startswith("100."):
-            return "Starlink CGNAT"
-
-        # Generic VPN ranges (very rough)
-        if ip.startswith(("5.", "37.", "45.", "91.", "95.", "185.")):
-            return "Possible VPN Provider"
-
-        return "Public Client or Unknown Proxy"
-    except:
-        return "Unknown"
+        return " - ".join(parts) if parts else "Unknown"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 
 # -----------------------------
@@ -338,11 +454,16 @@ def test():
 @app.route("/")
 def index():
     try:
+        # Enhanced proxy and Cloudflare detection
+        proxy_info = detect_cloudflare_and_proxies(request)
+
+        # Use real client IP if available (behind Cloudflare/proxy)
         raw_chain = request.headers.get("X-Forwarded-For") or request.remote_addr
         chain = [ip.strip() for ip in raw_chain.split(",")]
         annotated_chain = [(hop, annotate_ip(hop)) for hop in chain]
 
-        ip = chain[0]
+        # Use the real client IP for lookups
+        ip = proxy_info['real_client_ip'] or chain[0]
         session["name"] = ip
 
         # Basic IP info lookup with error handling
@@ -352,6 +473,20 @@ def index():
         except Exception as e:
             print(f"IP lookup error: {e}")
             info = {"error": "IP lookup failed"}
+
+        # Enhanced VPN detection
+        asn_category = "Unknown"
+        if info.get("asn_info"):
+            asn_category = info["asn_info"].get("type", "Unknown")
+        elif info.get("asn"):
+            asn_category = categorize_known_asn(info["asn"].replace("AS", ""))
+
+        vpn_analysis = enhanced_vpn_detection(info, asn_category, proxy_info)
+
+        # Add enhanced analysis to info
+        info['proxy_analysis'] = proxy_info
+        info['vpn_analysis'] = vpn_analysis
+        info['asn_category'] = asn_category
 
         # Log visitor (database optional)
         if DB_AVAILABLE and DATABASE_URL:
@@ -369,8 +504,12 @@ def index():
                         info.get("country"),
                         info.get("org"),
                         info.get("asn"),
-                        json.dumps(info.get("asn_info")) if info.get("asn_info") else None,
-                        info.get("security", {}).get("vpn") if "security" in info else None,
+                        json.dumps({
+                            'name': info.get('asn_info', {}).get('name'),
+                            'type': info.get('asn_category'),
+                            'country': info.get('asn_info', {}).get('country')
+                        }) if info.get('asn_info') or info.get('asn_category') else None,
+                        json.dumps(info.get('vpn_analysis')) if info.get('vpn_analysis') else None,
                         json.dumps(annotated_chain)
                     ))
                     conn.commit()
@@ -446,7 +585,17 @@ def dashboard():
                         # Add ASN info if available
                         if row["asn_info"]:
                             try:
-                                visitor["info"]["asn_info"] = json.loads(row["asn_info"])
+                                asn_data = json.loads(row["asn_info"])
+                                visitor["info"]["asn_info"] = asn_data
+                                visitor["info"]["asn_category"] = asn_data.get("type", "Unknown")
+                            except:
+                                pass
+
+                        # Add VPN analysis if available
+                        if row.get("vpn"):
+                            try:
+                                vpn_data = json.loads(row["vpn"])
+                                visitor["info"]["vpn_analysis"] = vpn_data
                             except:
                                 pass
                         visitors.append(visitor)
@@ -462,3 +611,6 @@ def dashboard():
     except Exception as e:
         print(f"Unexpected error in dashboard route: {e}")
         return f"<h1>Dashboard Error</h1><p>Something went wrong: {str(e)}</p>", 500
+
+if __name__ == "__main__":
+    app.run(debug=True, host="0.0.0.0", port=5000)
