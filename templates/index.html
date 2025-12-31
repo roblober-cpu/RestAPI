@@ -9,6 +9,9 @@
     <p>This page is rendered using a Flask template.</p>
 
     <h2>Location & Network Info</h2>
+    {% if info.get('error') %}
+        <p><em>Note: {{ info.error }}</em></p>
+    {% endif %}
     <ul>
         <li><strong>City:</strong> {{ city or "Unknown" }}</li>
         <li><strong>Region:</strong> {{ region or "Unknown" }}</li>

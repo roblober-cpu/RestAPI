@@ -4,13 +4,17 @@ import psycopg2
 import psycopg2.extras
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = "your-secret-key"
 
 # Database connection from environment variable
 DATABASE_URL = os.environ.get("DATABASE_URL")
+
+# Simple in-memory cache for IP lookups (resets on restart)
+ip_cache = {}
+CACHE_DURATION = timedelta(hours=1)  # Cache results for 1 hour
 
 def get_db_connection():
     """Create a database connection"""
@@ -58,14 +62,50 @@ def get_client_ip():
 
 
 def lookup_ip_info(ip):
+    # Check cache first
+    if ip in ip_cache:
+        cached_time, cached_data = ip_cache[ip]
+        if datetime.now() - cached_time < CACHE_DURATION:
+            return cached_data
+        else:
+            # Cache expired, remove it
+            del ip_cache[ip]
+
+    # Skip lookup for private/local IPs
+    if ip.startswith(('127.', '192.168.', '10.', '172.')):
+        result = {"error": "Private IP - no public info available"}
+        ip_cache[ip] = (datetime.now(), result)
+        return result
+
     try:
-        url = f"https://ipapi.co/{ip}/json/"
-        response = requests.get(url, timeout=3)
+        # Use ipwho.is API (good free tier, reliable)
+        url = f"http://ipwho.is/{ip}"
+        response = requests.get(url, timeout=5)
+
         if response.status_code == 200:
-            return response.json()
-        return {}
-    except Exception:
-        return {}
+            data = response.json()
+            if data.get("success"):
+                # Convert to consistent format
+                result = {
+                    "city": data.get("city"),
+                    "region": data.get("region"),
+                    "country": data.get("country"),
+                    "org": data.get("connection", {}).get("org") or data.get("connection", {}).get("isp"),
+                    "asn": f"AS{data.get('connection', {}).get('asn')}" if data.get("connection", {}).get("asn") else None,
+                }
+                ip_cache[ip] = (datetime.now(), result)
+                return result
+            else:
+                return {"error": "API returned success=false"}
+
+    except Exception as e:
+        print(f"Error looking up IP {ip}: {e}")
+        return {"error": f"Lookup failed: {str(e)}"}
+
+    # Fallback: return minimal error info
+    result = {"error": "Lookup failed"}
+    ip_cache[ip] = (datetime.now(), result)
+    return result
 
 
 def annotate_ip(ip):
