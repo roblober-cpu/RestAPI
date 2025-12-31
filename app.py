@@ -1,55 +1,53 @@
-from flask import Flask, request, session, render_template
-import requests
+"""
+Main Flask application for visitor tracking with geographic authentication.
+This module handles web routes and coordinates between the various modules.
+"""
+
+from flask import Flask, request, session, render_template, jsonify, redirect, url_for
 import json
 import os
 from datetime import datetime, timedelta
-import re
-import hashlib
-import secrets
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+
+# Import our modules
+from .database import init_database, db_save_visitor, db_create_user, db_get_user_by_email, db_update_user_login
+from .auth import hash_password, verify_password, validate_geographic_challenge, authenticate_user
+from .network import analyze_visitor_network, save_visitor_data, get_ip_coordinates
+from .utils import get_client_ip, validate_email, validate_phone, generate_verification_code
 
 app = Flask(__name__)
-app.secret_key = "your-secret-key"
+app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key")
 
 # Fallback in-memory storage if database is not available
 visitors_fallback = []
+users_db = {}
+pending_registrations = {}
+system_config_db = {
+    'granny_driveway': {
+        'lat': 39.14662374973502,
+        'lng': -93.88223955845123,
+        'name': "Granny's Driveway",
+        'country': "United States",
+        'tolerance_meters': 20.0
+    }
+}
 
-# User management (fallback to in-memory when database not available)
-users_db = {}  # Fallback in-memory storage
-pending_registrations = {}  # Fallback in-memory storage for pending registrations
+# Initialize database on startup
+try:
+    init_database()
+except Exception as e:
+    print(f"Database initialization failed: {e}")
 
-# Database connection from environment variable
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-# Database connection from environment variable
-DATABASE_URL = os.environ.get("DATABASE_URL")
-
-# Simple in-memory cache for IP lookups (resets on restart)
-ip_cache = {}
-CACHE_DURATION = timedelta(hours=1)  # Cache results for 1 hour
-
-# Optional database support
+# Optional database support check
 try:
     import psycopg2
-    import psycopg2.extras
     DB_AVAILABLE = True
 except ImportError:
     DB_AVAILABLE = False
-    print("Warning: psycopg2 not available, running without database")
 
-def get_db_connection():
-    """Create a database connection"""
-    if not DB_AVAILABLE or not DATABASE_URL:
-        return None
-    try:
-        return psycopg2.connect(DATABASE_URL)
-    except Exception as e:
-        print(f"Database connection failed: {e}")
-        return None
 
-def init_db():
+# -----------------------------
+#  Session Setup
+# -----------------------------
     """Initialize database schema"""
     if not DB_AVAILABLE or not DATABASE_URL:
         print("Database not configured, skipping initialization")
@@ -117,6 +115,30 @@ def init_db():
             )
         """)
 
+        # Create system_config table for geographic challenges and other system settings
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS system_config (
+                id SERIAL PRIMARY KEY,
+                config_key TEXT UNIQUE NOT NULL,
+                config_value JSONB NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Insert default Granny's driveway configuration if it doesn't exist
+        cursor.execute("""
+            INSERT INTO system_config (config_key, config_value)
+            VALUES ('granny_driveway', %s)
+            ON CONFLICT (config_key) DO NOTHING
+        """, [json.dumps({
+            'lat': 39.14662374973502,
+            'lng': -93.88223955845123,
+            'name': "Granny's Driveway",
+            'country': "United States",
+            'tolerance_meters': 20.0
+        })])
+
         cursor.close()
         conn.close()
     except Exception as e:
@@ -131,258 +153,22 @@ except Exception as e:
 
 
 # -----------------------------
-#  Database User Management
+#  Geographic Authentication
 # -----------------------------
 
-def db_create_user(email, phone, password_hash, geo_lat, geo_lng, network_org, network_asn, network_ip):
-    """Create a new user in the database or fallback to in-memory"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        users_db[email] = {
-            "email": email,
-            "phone": phone,
-            "password_hash": password_hash,
-            "geo_password_lat": geo_lat,
-            "geo_password_lng": geo_lng,
-            "network_org": network_org,
-            "network_asn": network_asn,
-            "network_ip": network_ip,
-            "created_at": datetime.utcnow(),
-            "last_login": None,
-            "email_verified": False,
-            "phone_verified": False
-        }
-        return True
 
-    conn = get_db_connection()
-    if not conn:
-        return False
 
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO users (email, phone, password_hash, geo_password_lat, geo_password_lng,
-                             network_org, network_asn, network_ip)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """, (email, phone, password_hash, geo_lat, geo_lng, network_org, network_asn, network_ip))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Database user creation error: {e}")
-        return False
 
-def db_get_user_by_email(email):
-    """Get user data by email from database or fallback"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        return users_db.get(email)
 
-    conn = get_db_connection()
-    if not conn:
-        return None
 
-    try:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT * FROM users WHERE email = %s", (email,))
-        user = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return dict(user) if user else None
-    except Exception as e:
-        print(f"Database user lookup error: {e}")
-        return None
-
-def db_update_user_login(email):
-    """Update user's last login timestamp"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        if email in users_db:
-            users_db[email]['last_login'] = datetime.utcnow()
-        return True
-
-    conn = get_db_connection()
-    if not conn:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET last_login = CURRENT_TIMESTAMP WHERE email = %s", (email,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Database user update error: {e}")
-        return False
-
-def db_create_pending_registration(email, phone, geo_lat, geo_lng, email_code, sms_code, expires_at):
-    """Create a pending registration"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        pending_registrations[email] = {
-            "email": email,
-            "phone": phone,
-            "geo_password_lat": geo_lat,
-            "geo_password_lng": geo_lng,
-            "email_code": email_code,
-            "sms_code": sms_code,
-            "expires_at": expires_at
-        }
-        return True
-
-    conn = get_db_connection()
-    if not conn:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("""
-            INSERT INTO pending_registrations (email, phone, geo_password_lat, geo_password_lng,
-                                             email_code, sms_code, expires_at)
-            VALUES (%s, %s, %s, %s, %s, %s, %s)
-        """, (email, phone, geo_lat, geo_lng, email_code, sms_code, expires_at))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Database pending registration creation error: {e}")
-        return False
-
-def db_get_pending_registration(email):
-    """Get pending registration by email"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        return pending_registrations.get(email)
-
-    conn = get_db_connection()
-    if not conn:
-        return None
-
-    try:
-        cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-        cursor.execute("SELECT * FROM pending_registrations WHERE email = %s", (email,))
-        reg = cursor.fetchone()
-        cursor.close()
-        conn.close()
-        return dict(reg) if reg else None
-    except Exception as e:
-        print(f"Database pending registration lookup error: {e}")
-        return None
-
-def db_delete_pending_registration(email):
-    """Delete pending registration"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        pending_registrations.pop(email, None)
-        return True
-
-    conn = get_db_connection()
-    if not conn:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM pending_registrations WHERE email = %s", (email,))
-        conn.commit()
-        cursor.close()
-        conn.close()
-        return True
-    except Exception as e:
-        print(f"Database pending registration deletion error: {e}")
-        return False
-
-def db_check_user_exists(email):
-    """Check if user exists"""
-    if not DB_AVAILABLE:
-        # Fallback to in-memory storage
-        return email in users_db
-
-    conn = get_db_connection()
-    if not conn:
-        return False
-
-    try:
-        cursor = conn.cursor()
-        cursor.execute("SELECT 1 FROM users WHERE email = %s", (email,))
-        exists = cursor.fetchone() is not None
-        cursor.close()
-        conn.close()
-        return exists
-    except Exception as e:
-        print(f"Database user existence check error: {e}")
-        return False
 
 
 # -----------------------------
 #  IP + Network Utilities
 # -----------------------------
 
-def get_client_ip():
-    forwarded = request.headers.get("X-Forwarded-For")
-    if forwarded:
-        return forwarded.split(",")[0].strip()
-    return request.remote_addr
 
 
-def lookup_ip_info(ip):
-    # Check cache first
-    if ip in ip_cache:
-        cached_time, cached_data = ip_cache[ip]
-        if datetime.now() - cached_time < CACHE_DURATION:
-            return cached_data
-        else:
-            # Cache expired, remove it
-            del ip_cache[ip]
-
-    # Skip lookup for private/local IPs
-    if ip.startswith(('127.', '192.168.', '10.', '172.')):
-        result = {"error": "Private IP - no public info available"}
-        ip_cache[ip] = (datetime.now(), result)
-        return result
-
-    try:
-        # Use ipwho.is API (good free tier, reliable)
-        url = f"http://ipwho.is/{ip}"
-        response = requests.get(url, timeout=5)
-
-        if response.status_code == 200:
-            data = response.json()
-            if data.get("success"):
-                # Convert to consistent format
-                result = {
-                    "city": data.get("city"),
-                    "region": data.get("region"),
-                    "country": data.get("country"),
-                    "org": data.get("connection", {}).get("org") or data.get("connection", {}).get("isp"),
-                    "asn": f"AS{data.get('connection', {}).get('asn')}" if data.get("connection", {}).get("asn") else None,
-                }
-
-                # Add ASN details if available
-                if result.get("asn"):
-                    try:
-                        asn_info = lookup_asn_info(result["asn"])
-                        if asn_info:
-                            result["asn_info"] = asn_info
-                    except Exception as e:
-                        print(f"ASN lookup error for {result['asn']}: {e}")
-                        # Continue without ASN info rather than failing
-
-                ip_cache[ip] = (datetime.now(), result)
-                return result
-            else:
-                return {"error": "API returned success=false"}
-
-    except Exception as e:
-        print(f"Error looking up IP {ip}: {e}")
-        return {"error": f"Lookup failed: {str(e)}"}
-
-    # Fallback: return minimal error info
-    result = {"error": "Lookup failed"}
-    ip_cache[ip] = (datetime.now(), result)
-    return result
 
 
 def lookup_asn_info(asn):
@@ -632,62 +418,15 @@ def enhanced_vpn_detection(info, asn_category, proxy_info):
             'reason': 'Non-Cloudflare proxy detected, possible VPN'
         }
 
-    return {
-        'detected': None,  # Unknown
-        'confidence': 'Low',
-        'method': 'Insufficient Data',
-        'reason': 'Cannot determine VPN status'
-    }
-
-
 # -----------------------------
 #  User Management Functions
 # -----------------------------
 
-def hash_password(password):
-    """Hash password with salt"""
-    salt = secrets.token_hex(16)
-    hashed = hashlib.sha256((password + salt).encode()).hexdigest()
-    return f"{salt}:{hashed}"
 
-def verify_password(stored_hash, password):
-    """Verify password against stored hash"""
-    try:
-        salt, hashed = stored_hash.split(':')
-        return hashlib.sha256((password + salt).encode()).hexdigest() == hashed
-    except:
-        return False
 
-def send_verification_email(email, code):
-    """Send verification email (mock implementation)"""
-    try:
-     # In production, configure actual SMTP
-        print(f"VERIFICATION EMAIL TO {email}: Code is {code}")
-        return True
-    except Exception as e:
-        print(f"Email sending failed: {e}")
-        return False
 
-def send_sms_verification(phone, code):
-    """Send SMS verification (mock implementation)"""
-    try:
-        # In production, integrate with SMS service like Twilio
-        print(f"VERIFICATION SMS TO {phone}: Code is {code}")
-        return True
-    except Exception as e:
-        print(f"SMS sending failed: {e}")
-        return False
 
-def validate_email(email):
-    """Basic email validation"""
-    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
-    return re.match(pattern, email) is not None
 
-def validate_phone(phone):
-    """Basic phone validation (US format)"""
-    # Remove all non-digit characters
-    digits = re.sub(r'\D', '', phone)
-    return len(digits) == 10 or (len(digits) == 11 and digits[0] == '1')
 
 def check_network_context(user_data, current_ip_info):
     """Check if user is on the same network they registered with"""
@@ -700,9 +439,6 @@ def check_network_context(user_data, current_ip_info):
 
     return isp_match or asn_match  # Allow if either matches
 
-def generate_verification_code():
-    """Generate 6-digit verification code"""
-    return ''.join(secrets.choice('0123456789') for _ in range(6))
 
 
 def annotate_ip(ip):
@@ -882,119 +618,54 @@ def test():
 @app.route("/")
 def index():
     try:
-        # Enhanced proxy and Cloudflare detection
-        proxy_info = detect_cloudflare_and_proxies(request)
-
-        # Use real client IP if available (behind Cloudflare/proxy)
-        raw_chain = request.headers.get("X-Forwarded-For") or request.remote_addr
-        chain = [ip.strip() for ip in raw_chain.split(",")]
-        annotated_chain = [(hop, annotate_ip(hop)) for hop in chain]
-
-        # Use the real client IP for lookups
-        ip = proxy_info['real_client_ip'] or chain[0]
+        # Get client IP
+        ip = get_client_ip()
         session["name"] = ip
 
-        # Basic IP info lookup with error handling
-        info = {}
-        try:
-            info = lookup_ip_info(ip)
-        except Exception as e:
-            print(f"IP lookup error: {e}")
-            info = {"error": "IP lookup failed"}
+        # Analyze visitor network
+        network_analysis = analyze_visitor_network(ip)
 
-        # Enhanced VPN detection
-        asn_category = "Unknown"
-        if info.get("asn_info"):
-            asn_category = info["asn_info"].get("type", "Unknown")
-        elif info.get("asn"):
-            asn_category = categorize_known_asn(info["asn"].replace("AS", ""))
-
-        vpn_analysis = enhanced_vpn_detection(info, asn_category, proxy_info)
-
-        # Add enhanced analysis to info
-        info['proxy_analysis'] = proxy_info
-        info['vpn_analysis'] = vpn_analysis
-        info['asn_category'] = asn_category
-
-        # Enhanced chain analysis with coordinates and classification
+        # Build enhanced chain (simplified for now)
         enhanced_chain = []
-        for hop_ip in chain:
-            hop_info = lookup_ip_info(hop_ip) if not hop_ip.startswith(('127.', '192.168.', '10.', '172.')) else {"error": "Private IP"}
-            hop_asn_category = "Unknown"
-            if hop_info.get("asn_info"):
-                hop_asn_category = hop_info["asn_info"].get("type", "Unknown")
-            elif hop_info.get("asn"):
-                hop_asn_category = categorize_known_asn(hop_info["asn"].replace("AS", ""))
-
-            hop_coords = get_ip_coordinates(hop_ip)
-            hop_classification = classify_hop(hop_ip, info if hop_ip == ip else hop_info, hop_asn_category)
-
+        if network_analysis:
             enhanced_chain.append({
-                "ip": hop_ip,
-                "label": annotate_ip(hop_ip),
-                "coords": hop_coords,
-                "classification": hop_classification,
-                "info": hop_info
+                "ip": ip,
+                "label": f"{network_analysis['info'].get('city', 'Unknown')}, {network_analysis['info'].get('country', 'Unknown')}",
+                "coords": network_analysis.get('coordinates'),
+                "classification": network_analysis['classification']
             })
 
-        # Log visitor (database optional)
-        if DB_AVAILABLE and DATABASE_URL:
-            try:
-                conn = get_db_connection()
-                if conn:
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        INSERT INTO visitors (ip, city, region, country, org, asn, asn_info, vpn, chain)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                    """, (
-                        ip,
-                        info.get("city"),
-                        info.get("region"),
-                        info.get("country"),
-                        info.get("org"),
-                        info.get("asn"),
-                        json.dumps({
-                            'name': info.get('asn_info', {}).get('name'),
-                            'type': info.get('asn_category'),
-                            'country': info.get('asn_info', {}).get('country')
-                        }) if info.get('asn_info') or info.get('asn_category') else None,
-                        json.dumps(info.get('vpn_analysis')) if info.get('vpn_analysis') else None,
-                        json.dumps(annotated_chain)
-                    ))
-                    conn.commit()
-                    cursor.close()
-                    conn.close()
-            except Exception as e:
-                print(f"Database error logging visitor: {e}")
+        # Save visitor data
+        save_visitor_data(ip, network_analysis)
 
-        # Fallback: always store in memory for immediate access
+        # Fallback: store in memory
         visitor_record = {
             "ip": ip,
-            "info": info.copy(),
-            "chain": annotated_chain,
+            "info": network_analysis['info'] if network_analysis else {},
             "timestamp": datetime.utcnow()
         }
         visitors_fallback.append(visitor_record)
-        # Keep only last 100 visitors in memory
         if len(visitors_fallback) > 100:
             visitors_fallback.pop(0)
+
+        # Prepare template data
+        info = network_analysis['info'] if network_analysis else {}
 
         return render_template(
             "index.html",
             info=info,
             name=ip,
-            chain=annotated_chain,  # Keep original for backward compatibility
-            enhanced_chain=enhanced_chain,  # New enhanced data for map
+            chain=[],  # Simplified
+            enhanced_chain=enhanced_chain,
             city=info.get("city"),
             region=info.get("region"),
             country=info.get("country"),
             isp=info.get("org"),
             asn=info.get("asn"),
-            vpn=info.get("security", {}).get("vpn") if "security" in info else None,
+            vpn=network_analysis['classification']['category'] if network_analysis and network_analysis['classification']['category'] == 'VPN' else None,
         )
     except Exception as e:
         print(f"Unexpected error in index route: {e}")
-        # Return a basic error page
         return f"<h1>Error</h1><p>Something went wrong: {str(e)}</p>", 500
 
 
@@ -1183,39 +854,13 @@ def api_login():
     try:
         data = request.get_json()
         email = data.get('email', '').strip()
-        geo_lat = data.get('geo_lat')
-        geo_lng = data.get('geo_lng')
+        password = data.get('password', '')
 
-        user_data = db_get_user_by_email(email)
-        if not user_data:
-            return {"success": False, "message": "User not found"}, 404
+        # Authenticate user
+        success, result = authenticate_user(email, password)
 
-        # Check geographic password
-        stored_geo = {
-            'lat': user_data['geo_password_lat'],
-            'lng': user_data['geo_password_lng']
-        }
-        distance = calculate_distance(
-            float(geo_lat), float(geo_lng),
-            stored_geo['lat'], stored_geo['lng']
-        )
-
-        if distance > 0.1:  # Within 100 meters
-            return {"success": False, "message": "Incorrect geographic password"}, 401
-
-        # Check network context
-        current_ip = get_client_ip()
-        current_info = lookup_ip_info(current_ip)
-
-        if not check_network_context(user_data, current_info):
-            # Network context changed - require additional verification
-            session['pending_user'] = email
-            session['network_verification_required'] = True
-            return {
-                "success": False,
-                "message": "Network context changed. Additional verification required.",
-                "requires_additional_auth": True
-            }, 401
+        if not success:
+            return {"success": False, "message": result}, 401
 
         # Login successful
         session['user_email'] = email
@@ -1276,6 +921,29 @@ def logout():
     """Logout user"""
     session.clear()
     return {"success": True, "message": "Logged out"}
+
+@app.route("/api/validate_geographic", methods=["POST"])
+def api_validate_geographic():
+    """Validate geographic challenge coordinates server-side"""
+    try:
+        data = request.get_json()
+        challenge_key = data.get('challenge_key', 'granny_driveway')
+        lat = data.get('lat')
+        lng = data.get('lng')
+
+        if not lat or not lng:
+            return {"success": False, "message": "Coordinates required"}, 400
+
+        success, message = validate_geographic_challenge(challenge_key, lat, lng)
+
+        return {
+            "success": success,
+            "message": message
+        }
+
+    except Exception as e:
+        print(f"Geographic validation error: {e}")
+        return {"success": False, "message": "Validation failed"}, 500
 
 @app.route("/profile")
 def profile():

@@ -322,103 +322,75 @@
         }
 
         // Handle map clicks for geographic authentication
-        map.on('click', async function(e) {
-            if (!authenticationActive) return;
+        map.on('click', function(e) {
+            if (!authenticationActive || !correctLocation) return;
 
             const clickedLat = e.latlng.lat;
             const clickedLng = e.latlng.lng;
+            const distance = calculateDistance(clickedLat, clickedLng, correctLocation.lat, correctLocation.lng);
 
-            try {
-                // Call the server-side validation API
-                const response = await fetch('/api/validate_geographic', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        challenge_key: 'granny_driveway',
-                        lat: clickedLat,
-                        lng: clickedLng
-                    })
-                });
-
-                const result = await response.json();
-
-                if (result.success) {
-                    // Success! Show welcome message and update UI
-                    L.popup()
-                        .setLatLng([clickedLat, clickedLng])
-                        .setContent(`
-                            <div style="text-align: center; padding: 10px;">
-                                <h3 style="color: #28a745; margin: 0;">🎉 Welcome, Rob!</h3>
-                                <p style="margin: 5px 0;">You found Granny's driveway!</p>
-                                <small>Geographic authentication successful</small>
-                            </div>
-                        `)
-                        .openOn(map);
-
-                    // Update UI
-                    document.getElementById('authChallenge').style.display = 'none';
-                    document.getElementById('authSuccess').style.display = 'block';
-                    document.getElementById('authFailure').style.display = 'none';
-
-                    // Disable further authentication
-                    authenticationActive = false;
-
-                    // Add success marker
-                    L.marker([clickedLat, clickedLng], {
-                        icon: L.divIcon({
-                            html: '<i class="fas fa-check-circle" style="color: #28a745; font-size: 24px;"></i>',
-                            className: 'auth-success-icon',
-                            iconSize: [24, 24],
-                            iconAnchor: [12, 12]
-                        })
-                    }).addTo(map);
-
-                    console.log('Geographic authentication successful! Found Granny\'s driveway.');
-                } else {
-                    // Wrong location - show failure message and hint
-                    L.popup()
-                        .setLatLng([clickedLat, clickedLng])
-                        .setContent(`
-                            <div style="text-align: center; padding: 10px;">
-                                <h4 style="color: #dc3545; margin: 0;">❌ Not Quite Right</h4>
-                                <p style="margin: 5px 0;">That's not Granny's driveway</p>
-                                <small>${result.message}</small>
-                            </div>
-                        `)
-                        .openOn(map);
-
-                    // Update UI
-                    document.getElementById('authChallenge').style.display = 'none';
-                    document.getElementById('authFailure').style.display = 'block';
-                    document.getElementById('authSuccess').style.display = 'none';
-
-                    // Add failure marker
-                    L.marker([clickedLat, clickedLng], {
-                        icon: L.divIcon({
-                            html: '<i class="fas fa-times-circle" style="color: #dc3545; font-size: 20px;"></i>',
-                            className: 'auth-failure-icon',
-                            iconSize: [20, 20],
-                            iconAnchor: [10, 10]
-                        })
-                    }).addTo(map);
-
-                    console.log(`Authentication failed: ${result.message}`);
-                }
-            } catch (error) {
-                console.error('Geographic validation error:', error);
-                // Show error popup
+            // Check if click is within 20 meters of correct location (very precise for driveway)
+            if (distance <= 0.02) { // 0.02 km = 20 meters
+                // Success! Show welcome message and update UI
                 L.popup()
                     .setLatLng([clickedLat, clickedLng])
                     .setContent(`
                         <div style="text-align: center; padding: 10px;">
-                            <h4 style="color: #dc3545; margin: 0;">❌ Error</h4>
-                            <p style="margin: 5px 0;">Unable to validate location</p>
-                            <small>Please try again</small>
+                            <h3 style="color: #28a745; margin: 0;">🎉 Welcome, Rob!</h3>
+                            <p style="margin: 5px 0;">You found Granny's driveway!</p>
+                            <small>Geographic authentication successful</small>
                         </div>
                     `)
                     .openOn(map);
+
+                // Update UI
+                document.getElementById('authChallenge').style.display = 'none';
+                document.getElementById('authSuccess').style.display = 'block';
+                document.getElementById('authFailure').style.display = 'none';
+
+                // Disable further authentication
+                authenticationActive = false;
+
+                // Add success marker
+                L.marker([clickedLat, clickedLng], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-check-circle" style="color: #28a745; font-size: 24px;"></i>',
+                        className: 'auth-success-icon',
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12]
+                    })
+                }).addTo(map);
+
+                console.log('Geographic authentication successful! Found Granny\'s driveway.');
+            } else {
+                // Wrong location - show failure message and hint
+                L.popup()
+                    .setLatLng([clickedLat, clickedLng])
+                    .setContent(`
+                        <div style="text-align: center; padding: 10px;">
+                            <h4 style="color: #dc3545; margin: 0;">❌ Not Quite Right</h4>
+                            <p style="margin: 5px 0;">That's not Granny's driveway</p>
+                            <small>Distance: ${Math.round(distance * 1000)} meters away</small>
+                        </div>
+                    `)
+                    .openOn(map);
+
+                // Update UI
+                document.getElementById('authChallenge').style.display = 'none';
+                document.getElementById('authFailure').style.display = 'block';
+                document.getElementById('authSuccess').style.display = 'none';
+
+                // Add failure marker
+                L.marker([clickedLat, clickedLng], {
+                    icon: L.divIcon({
+                        html: '<i class="fas fa-times-circle" style="color: #dc3545; font-size: 20px;"></i>',
+                        className: 'auth-failure-icon',
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10]
+                    })
+                }).addTo(map);
+
+                console.log(`Incorrect location clicked. Distance: ${Math.round(distance * 1000)} meters`);
             }
         });
 
