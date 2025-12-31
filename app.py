@@ -208,35 +208,38 @@ def lookup_asn_info(asn):
 
 def categorize_known_asn(asn_num):
     """Categorize well-known ASNs"""
-    known_asns = {
-        # Cloud Providers
-        '15169': 'Cloud Provider',  # Google
-        '16509': 'Cloud Provider',  # Amazon AWS
-        '8075': 'Cloud Provider',   # Microsoft Azure
-        '13335': 'Cloud Provider',  # Cloudflare
-        '14061': 'Cloud Provider',  # DigitalOcean
-        '31898': 'Cloud Provider',  # Oracle Cloud
+    try:
+        known_asns = {
+            # Cloud Providers
+            '15169': 'Cloud Provider',  # Google
+            '16509': 'Cloud Provider',  # Amazon AWS
+            '8075': 'Cloud Provider',   # Microsoft Azure
+            '13335': 'Cloud Provider',  # Cloudflare
+            '14061': 'Cloud Provider',  # DigitalOcean
+            '31898': 'Cloud Provider',  # Oracle Cloud
 
-        # Major ISPs
-        '7018': 'Major ISP',   # AT&T
-        '701': 'Major ISP',    # Verizon
-        '7922': 'Major ISP',   # Comcast
-        '22773': 'Major ISP',  # Cox Communications
-        '11427': 'Major ISP',  # Time Warner Cable
-        '20115': 'Major ISP',  # Charter Communications
+            # Major ISPs
+            '7018': 'Major ISP',   # AT&T
+            '701': 'Major ISP',    # Verizon
+            '7922': 'Major ISP',   # Comcast
+            '22773': 'Major ISP',  # Cox Communications
+            '11427': 'Major ISP',  # Time Warner Cable
+            '20115': 'Major ISP',  # Charter Communications
 
-        # Mobile Carriers
-        '21928': 'Mobile Carrier',  # T-Mobile
-        '20057': 'Mobile Carrier',  # AT&T Wireless
-        '6167': 'Mobile Carrier',   # Verizon Wireless
+            # Mobile Carriers
+            '21928': 'Mobile Carrier',  # T-Mobile
+            '20057': 'Mobile Carrier',  # AT&T Wireless
+            '6167': 'Mobile Carrier',   # Verizon Wireless
 
-        # Universities
-        '73': 'Educational',    # University of Washington
-        '17': 'Educational',    # Purdue University
-        '18': 'Educational',    # University of Texas
-    }
+            # Universities
+            '73': 'Educational',    # University of Washington
+            '17': 'Educational',    # Purdue University
+            '18': 'Educational',    # University of Texas
+        }
 
-    return known_asns.get(asn_num, "Other/Unknown")
+        return known_asns.get(str(asn_num), "Other/Unknown")
+    except:
+        return "Other/Unknown"
 
 
 def categorize_asn(name):
@@ -273,6 +276,47 @@ def categorize_asn(name):
         return "Other/Unknown"
 
 
+def annotate_ip(ip):
+    """Annotate an IP address with network information"""
+    try:
+        # Private ranges
+        if ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."):
+            # More accurate private range check
+            parts = ip.split(".")
+            if parts[0] == "172" and 16 <= int(parts[1]) <= 31:
+                return "Private Network / Load Balancer"
+            if parts[0] in ("10", "192"):
+                return "Private Network / Load Balancer"
+
+        # Cloudflare
+        if ip.startswith(("104.", "172.64.", "188.114.")):
+            return "Cloudflare Edge Node"
+
+        # AWS
+        if ip.startswith(("3.", "13.", "18.", "34.", "35.", "52.", "54.")):
+            return "AWS Cloud Server"
+
+        # Google Cloud
+        if ip.startswith(("34.", "35.", "66.102.", "66.249.")):
+            return "Google Cloud Server"
+
+        # Azure
+        if ip.startswith(("20.", "40.", "52.", "104.")):
+            return "Azure Cloud Server"
+
+        # Starlink
+        if ip.startswith("100."):
+            return "Starlink CGNAT"
+
+        # Generic VPN ranges (very rough)
+        if ip.startswith(("5.", "37.", "45.", "91.", "95.", "185.")):
+            return "Possible VPN Provider"
+
+        return "Public Client or Unknown Proxy"
+    except:
+        return "Unknown"
+
+
 # -----------------------------
 #  Session Setup
 # -----------------------------
@@ -287,116 +331,134 @@ def assign_ip_as_username():
 #  Routes
 # -----------------------------
 
+@app.route("/test")
+def test():
+    return "<h1>App is working!</h1><p>If you can see this, the basic Flask app is running.</p>"
+
 @app.route("/")
 def index():
-    raw_chain = request.headers.get("X-Forwarded-For") or request.remote_addr
-    chain = [ip.strip() for ip in raw_chain.split(",")]
-    annotated_chain = [(hop, annotate_ip(hop)) for hop in chain]
+    try:
+        raw_chain = request.headers.get("X-Forwarded-For") or request.remote_addr
+        chain = [ip.strip() for ip in raw_chain.split(",")]
+        annotated_chain = [(hop, annotate_ip(hop)) for hop in chain]
 
-    ip = chain[0]
-    session["name"] = ip
+        ip = chain[0]
+        session["name"] = ip
 
-    info = lookup_ip_info(ip)
-
-    # Log visitor to database (optional)
-    if DB_AVAILABLE and DATABASE_URL:
+        # Basic IP info lookup with error handling
+        info = {}
         try:
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    INSERT INTO visitors (ip, city, region, country, org, asn, asn_info, vpn, chain)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
-                """, (
-                    ip,
-                    info.get("city"),
-                    info.get("region"),
-                    info.get("country"),
-                    info.get("org"),
-                    info.get("asn"),
-                    json.dumps(info.get("asn_info")) if info.get("asn_info") else None,
-                    info.get("security", {}).get("vpn") if "security" in info else None,
-                    json.dumps(annotated_chain)
-                ))
-                conn.commit()
-                cursor.close()
-                conn.close()
+            info = lookup_ip_info(ip)
         except Exception as e:
-            print(f"Database error logging visitor: {e}")
-            # Continue serving the page even if database fails
+            print(f"IP lookup error: {e}")
+            info = {"error": "IP lookup failed"}
 
-    # Fallback: always store in memory for immediate access
-    visitor_record = {
-        "ip": ip,
-        "info": info.copy(),
-        "chain": annotated_chain,
-        "timestamp": datetime.utcnow()
-    }
-    visitors_fallback.append(visitor_record)
-    # Keep only last 100 visitors in memory
-    if len(visitors_fallback) > 100:
-        visitors_fallback.pop(0)
+        # Log visitor (database optional)
+        if DB_AVAILABLE and DATABASE_URL:
+            try:
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor()
+                    cursor.execute("""
+                        INSERT INTO visitors (ip, city, region, country, org, asn, asn_info, vpn, chain)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        ip,
+                        info.get("city"),
+                        info.get("region"),
+                        info.get("country"),
+                        info.get("org"),
+                        info.get("asn"),
+                        json.dumps(info.get("asn_info")) if info.get("asn_info") else None,
+                        info.get("security", {}).get("vpn") if "security" in info else None,
+                        json.dumps(annotated_chain)
+                    ))
+                    conn.commit()
+                    cursor.close()
+                    conn.close()
+            except Exception as e:
+                print(f"Database error logging visitor: {e}")
 
-    return render_template(
-        "index.html",
-        info=info,
-        name=ip,
-        chain=annotated_chain,
-        city=info.get("city"),
-        region=info.get("region"),
-        country=info.get("country"),
-        isp=info.get("org"),
-        asn=info.get("asn"),
-        vpn=info.get("security", {}).get("vpn") if "security" in info else None,
-    )
+        # Fallback: always store in memory for immediate access
+        visitor_record = {
+            "ip": ip,
+            "info": info.copy(),
+            "chain": annotated_chain,
+            "timestamp": datetime.utcnow()
+        }
+        visitors_fallback.append(visitor_record)
+        # Keep only last 100 visitors in memory
+        if len(visitors_fallback) > 100:
+            visitors_fallback.pop(0)
+
+        return render_template(
+            "index.html",
+            info=info,
+            name=ip,
+            chain=annotated_chain,
+            city=info.get("city"),
+            region=info.get("region"),
+            country=info.get("country"),
+            isp=info.get("org"),
+            asn=info.get("asn"),
+            vpn=info.get("security", {}).get("vpn") if "security" in info else None,
+        )
+    except Exception as e:
+        print(f"Unexpected error in index route: {e}")
+        # Return a basic error page
+        return f"<h1>Error</h1><p>Something went wrong: {str(e)}</p>", 500
 
 
 @app.route("/dashboard")
 def dashboard():
-    visitors = []
+    try:
+        visitors = []
 
-    if DB_AVAILABLE and DATABASE_URL:
-        try:
-            conn = get_db_connection()
-            if conn:
-                cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-                cursor.execute("SELECT * FROM visitors ORDER BY timestamp DESC")
-                rows = cursor.fetchall()
-                cursor.close()
-                conn.close()
+        if DB_AVAILABLE and DATABASE_URL:
+            try:
+                conn = get_db_connection()
+                if conn:
+                    cursor = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+                    cursor.execute("SELECT * FROM visitors ORDER BY timestamp DESC")
+                    rows = cursor.fetchall()
+                    cursor.close()
+                    conn.close()
 
-                # Convert rows to dictionaries with parsed chain data
-                for row in rows:
-                    try:
-                        chain_data = json.loads(row["chain"]) if row["chain"] else []
-                    except:
-                        chain_data = []
-
-                    visitor = {
-                        "ip": row["ip"],
-                        "info": {
-                            "city": row["city"],
-                            "region": row["region"],
-                            "country": row["country"],
-                            "org": row["org"],
-                            "asn": row["asn"],
-                        },
-                        "chain": chain_data,
-                        "timestamp": row["timestamp"]
-                    }
-                    # Add ASN info if available
-                    if row["asn_info"]:
+                    # Convert rows to dictionaries with parsed chain data
+                    for row in rows:
                         try:
-                            visitor["info"]["asn_info"] = json.loads(row["asn_info"])
+                            chain_data = json.loads(row["chain"]) if row["chain"] else []
                         except:
-                            pass
-                    visitors.append(visitor)
-        except Exception as e:
-            print(f"Database error loading visitors: {e}")
-            # Fall back to in-memory storage
-            visitors = visitors_fallback.copy()
-    else:
-        # No database available, use in-memory storage
-        visitors = visitors_fallback.copy()
+                            chain_data = []
 
-    return render_template("dashboard.html", visitors=visitors)
+                        visitor = {
+                            "ip": row["ip"],
+                            "info": {
+                                "city": row["city"],
+                                "region": row["region"],
+                                "country": row["country"],
+                                "org": row["org"],
+                                "asn": row["asn"],
+                            },
+                            "chain": chain_data,
+                            "timestamp": row["timestamp"]
+                        }
+                        # Add ASN info if available
+                        if row["asn_info"]:
+                            try:
+                                visitor["info"]["asn_info"] = json.loads(row["asn_info"])
+                            except:
+                                pass
+                        visitors.append(visitor)
+            except Exception as e:
+                print(f"Database error loading visitors: {e}")
+                # Fall back to in-memory storage
+                visitors = visitors_fallback.copy()
+        else:
+            # No database available, use in-memory storage
+            visitors = visitors_fallback.copy()
+
+        return render_template("dashboard.html", visitors=visitors)
+    except Exception as e:
+        print(f"Unexpected error in dashboard route: {e}")
+        return f"<h1>Dashboard Error</h1><p>Something went wrong: {str(e)}</p>", 500
