@@ -433,6 +433,136 @@ def annotate_ip(ip):
         return f"Error: {str(e)}"
 
 
+def get_ip_coordinates(ip):
+    """Get geographic coordinates for an IP address"""
+    try:
+        # Skip lookup for private IPs
+        if ip.startswith(('127.', '192.168.', '10.', '172.')):
+            return None  # No coordinates for private IPs
+
+        # Check cache first
+        cache_key = f"coords_{ip}"
+        if cache_key in ip_cache:
+            cached_time, cached_coords = ip_cache[cache_key]
+            if datetime.now() - cached_time < CACHE_DURATION:
+                return cached_coords
+
+        # Use ipwho.is API for coordinates
+        url = f"http://ipwho.is/{ip}"
+        response = requests.get(url, timeout=5)
+
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and data.get("latitude") and data.get("longitude"):
+                coords = {
+                    "lat": data["latitude"],
+                    "lng": data["longitude"],
+                    "city": data.get("city", "Unknown"),
+                    "country": data.get("country", "Unknown"),
+                    "org": data.get("connection", {}).get("org", "Unknown")
+                }
+                ip_cache[cache_key] = (datetime.now(), coords)
+                return coords
+
+    except Exception as e:
+        print(f"Coordinate lookup failed for {ip}: {e}")
+
+    return None
+
+
+def classify_hop(ip, info, asn_category):
+    """Classify a network hop for map styling"""
+    try:
+        # Private/local IPs
+        if ip.startswith(('127.', '192.168.', '10.', '172.')):
+            return {
+                "type": "local",
+                "icon": "home",
+                "color": "#808080",
+                "description": "Local/Private Network"
+            }
+
+        # Cloudflare detection
+        if info.get('proxy_analysis', {}).get('cloudflare_detected'):
+            return {
+                "type": "cloudflare",
+                "icon": "shield",
+                "color": "#ff6b35",
+                "description": "Cloudflare Protected"
+            }
+
+        # VPN detection
+        vpn_analysis = info.get('vpn_analysis', {})
+        if vpn_analysis.get('detected') == True:
+            return {
+                "type": "vpn",
+                "icon": "eye-slash",
+                "color": "#dc3545",
+                "description": "VPN Detected"
+            }
+
+        # ASN-based classification
+        if asn_category == "Residential":
+            return {
+                "type": "residential",
+                "icon": "home",
+                "color": "#28a745",
+                "description": "Residential ISP"
+            }
+        elif asn_category == "Cloud Provider":
+            return {
+                "type": "cloud",
+                "icon": "cloud",
+                "color": "#007bff",
+                "description": "Cloud Provider"
+            }
+        elif asn_category == "Hosting Provider":
+            return {
+                "type": "hosting",
+                "icon": "server",
+                "color": "#6f42c1",
+                "description": "Hosting Provider"
+            }
+        elif asn_category == "Mobile Carrier":
+            return {
+                "type": "mobile",
+                "icon": "signal",
+                "color": "#fd7e14",
+                "description": "Mobile Carrier"
+            }
+        elif asn_category == "Corporate":
+            return {
+                "type": "corporate",
+                "icon": "building",
+                "color": "#6c757d",
+                "description": "Corporate Network"
+            }
+        elif asn_category == "VPN":
+            return {
+                "type": "vpn",
+                "icon": "eye-slash",
+                "color": "#dc3545",
+                "description": "VPN Provider"
+            }
+
+        # Default
+        return {
+            "type": "unknown",
+            "icon": "question",
+            "color": "#ffc107",
+            "description": "Unknown/Other"
+        }
+
+    except Exception as e:
+        print(f"Error classifying hop {ip}: {e}")
+        return {
+            "type": "error",
+            "icon": "exclamation-triangle",
+            "color": "#dc3545",
+            "description": "Classification Error"
+        }
+
+
 # -----------------------------
 #  Session Setup
 # -----------------------------
@@ -488,6 +618,27 @@ def index():
         info['vpn_analysis'] = vpn_analysis
         info['asn_category'] = asn_category
 
+        # Enhanced chain analysis with coordinates and classification
+        enhanced_chain = []
+        for hop_ip in chain:
+            hop_info = lookup_ip_info(hop_ip) if not hop_ip.startswith(('127.', '192.168.', '10.', '172.')) else {"error": "Private IP"}
+            hop_asn_category = "Unknown"
+            if hop_info.get("asn_info"):
+                hop_asn_category = hop_info["asn_info"].get("type", "Unknown")
+            elif hop_info.get("asn"):
+                hop_asn_category = categorize_known_asn(hop_info["asn"].replace("AS", ""))
+
+            hop_coords = get_ip_coordinates(hop_ip)
+            hop_classification = classify_hop(hop_ip, info if hop_ip == ip else hop_info, hop_asn_category)
+
+            enhanced_chain.append({
+                "ip": hop_ip,
+                "label": annotate_ip(hop_ip),
+                "coords": hop_coords,
+                "classification": hop_classification,
+                "info": hop_info
+            })
+
         # Log visitor (database optional)
         if DB_AVAILABLE and DATABASE_URL:
             try:
@@ -534,7 +685,8 @@ def index():
             "index.html",
             info=info,
             name=ip,
-            chain=annotated_chain,
+            chain=annotated_chain,  # Keep original for backward compatibility
+            enhanced_chain=enhanced_chain,  # New enhanced data for map
             city=info.get("city"),
             region=info.get("region"),
             country=info.get("country"),

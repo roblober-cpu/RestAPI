@@ -2,6 +2,55 @@
 <html>
 <head>
     <title>Visitor Info</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <!-- Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        #network-map {
+            height: 500px;
+            width: 100%;
+            margin: 20px 0;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+        }
+        .map-legend {
+            background: white;
+            padding: 10px;
+            border-radius: 5px;
+            box-shadow: 0 0 15px rgba(0,0,0,0.2);
+            margin-bottom: 10px;
+        }
+        .legend-item {
+            display: inline-block;
+            margin: 5px 10px 5px 0;
+            font-size: 12px;
+        }
+        .legend-color {
+            display: inline-block;
+            width: 12px;
+            height: 12px;
+            margin-right: 5px;
+            border-radius: 50%;
+            vertical-align: middle;
+        }
+        .network-path-list {
+            margin-top: 20px;
+        }
+        .hop-item {
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .hop-icon {
+            margin-right: 8px;
+        }
+    </style>
 </head>
 <body>
 
@@ -55,11 +104,132 @@
     </ul>
 
     <h3>Network Path</h3>
-    <ul>
-        {% for hop, label in chain %}
-            <li>{{ hop }} — <em>{{ label }}</em></li>
-        {% endfor %}
-    </ul>
+
+    <!-- Map Legend -->
+    <div class="map-legend">
+        <strong>Network Classification:</strong><br>
+        <span class="legend-item"><span class="legend-color" style="background-color: #28a745;"></span><i class="fas fa-home hop-icon"></i>Residential</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #007bff;"></span><i class="fas fa-cloud hop-icon"></i>Cloud Provider</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #6f42c1;"></span><i class="fas fa-server hop-icon"></i>Hosting</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #fd7e14;"></span><i class="fas fa-signal hop-icon"></i>Mobile</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #dc3545;"></span><i class="fas fa-eye-slash hop-icon"></i>VPN</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #ff6b35;"></span><i class="fas fa-shield hop-icon"></i>Cloudflare</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #808080;"></span><i class="fas fa-home hop-icon"></i>Local</span>
+        <span class="legend-item"><span class="legend-color" style="background-color: #ffc107;"></span><i class="fas fa-question hop-icon"></i>Unknown</span>
+    </div>
+
+    <!-- Network Map -->
+    <div id="network-map"></div>
+
+    <!-- Network Path List -->
+    <div class="network-path-list">
+        <h4>IP Chain Details:</h4>
+        <ul>
+            {% for hop in enhanced_chain %}
+                <li class="hop-item">
+                    <i class="fas fa-{{ hop.classification.icon }} hop-icon" style="color: {{ hop.classification.color }}"></i>
+                    <strong>{{ hop.ip }}</strong> — <em>{{ hop.label }}</em>
+                    <br><small style="color: {{ hop.classification.color }}">{{ hop.classification.description }}</small>
+                    {% if hop.coords %}
+                        <small>({{ hop.coords.lat | round(4) }}, {{ hop.coords.lng | round(4) }})</small>
+                    {% endif %}
+                </li>
+            {% endfor %}
+        </ul>
+    </div>
+
+    <!-- Leaflet JavaScript -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+        // Network path data from Flask
+        const networkPath = {{ enhanced_chain | tojson }};
+
+        // Initialize map
+        const map = L.map('network-map').setView([20, 0], 2); // Centered on world
+
+        // Add OpenStreetMap tiles
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors',
+            maxZoom: 18,
+        }).addTo(map);
+
+        // Icon functions for different hop types
+        function getHopIcon(classification) {
+            const iconMap = {
+                'home': 'fa-home',
+                'cloud': 'fa-cloud',
+                'server': 'fa-server',
+                'signal': 'fa-signal',
+                'eye-slash': 'fa-eye-slash',
+                'shield': 'fa-shield',
+                'question': 'fa-question',
+                'exclamation-triangle': 'fa-exclamation-triangle'
+            };
+
+            return L.divIcon({
+                html: `<i class="fas ${iconMap[classification.icon] || 'fa-question'}" style="color: ${classification.color}; font-size: 18px;"></i>`,
+                className: 'custom-hop-icon',
+                iconSize: [20, 20],
+                iconAnchor: [10, 10]
+            });
+        }
+
+        // Add markers and lines
+        let markers = [];
+        let validCoords = [];
+
+        networkPath.forEach((hop, index) => {
+            if (hop.coords && hop.coords.lat && hop.coords.lng) {
+                // Create marker
+                const marker = L.marker([hop.coords.lat, hop.coords.lng], {
+                    icon: getHopIcon(hop.classification)
+                });
+
+                // Popup content
+                const popupContent = `
+                    <strong>${hop.ip}</strong><br>
+                    <em>${hop.label}</em><br>
+                    <span style="color: ${hop.classification.color}">${hop.classification.description}</span><br>
+                    ${hop.coords.city}, ${hop.coords.country}<br>
+                    ${hop.coords.org}
+                `;
+
+                marker.bindPopup(popupContent);
+                marker.addTo(map);
+                markers.push(marker);
+                validCoords.push([hop.coords.lat, hop.coords.lng]);
+
+                // Add hop number
+                L.marker([hop.coords.lat, hop.coords.lng], {
+                    icon: L.divIcon({
+                        html: `<span style="background: white; border: 2px solid ${hop.classification.color}; border-radius: 50%; width: 20px; height: 20px; display: inline-block; text-align: center; line-height: 16px; font-size: 10px; font-weight: bold; color: ${hop.classification.color};">${index + 1}</span>`,
+                        className: 'hop-number',
+                        iconSize: [20, 20],
+                        iconAnchor: [10, 10]
+                    })
+                }).addTo(map);
+            }
+        });
+
+        // Draw lines between hops
+        if (validCoords.length > 1) {
+            const polyline = L.polyline(validCoords, {
+                color: '#007bff',
+                weight: 3,
+                opacity: 0.7,
+                dashArray: '5, 10'
+            }).addTo(map);
+
+            // Fit map to show all points
+            map.fitBounds(polyline.getBounds(), { padding: [20, 20] });
+        } else if (validCoords.length === 1) {
+            // Just one point, center on it
+            map.setView(validCoords[0], 10);
+        }
+
+        // Add scale control
+        L.control.scale().addTo(map);
+    </script>
 
 </body>
 </html>
