@@ -52,7 +52,8 @@ def init_db():
 try:
     init_db()
 except Exception as e:
-    print(f"Database initialization warning: {e}")
+    print(f"Database initialization error: {e}")
+    # Continue running even if DB init fails
 
 
 
@@ -102,9 +103,13 @@ def lookup_ip_info(ip):
 
                 # Add ASN details if available
                 if result.get("asn"):
-                    asn_info = lookup_asn_info(result["asn"])
-                    if asn_info:
-                        result["asn_info"] = asn_info
+                    try:
+                        asn_info = lookup_asn_info(result["asn"])
+                        if asn_info:
+                            result["asn_info"] = asn_info
+                    except Exception as e:
+                        print(f"ASN lookup error for {result['asn']}: {e}")
+                        # Continue without ASN info rather than failing
 
                 ip_cache[ip] = (datetime.now(), result)
                 return result
@@ -140,18 +145,24 @@ def lookup_asn_info(asn):
             asn_info = {}
 
             # Extract organization name
-            if 'Organization:' in html:
-                start = html.find('Organization:') + len('Organization:')
-                end = html.find('<', start)
-                if end > start:
-                    asn_info['name'] = html[start:end].strip()
+            try:
+                if 'Organization:' in html:
+                    start = html.find('Organization:') + len('Organization:')
+                    end = html.find('<', start)
+                    if end > start:
+                        asn_info['name'] = html[start:end].strip()
+            except:
+                pass
 
             # Extract country
-            if 'Country:' in html:
-                start = html.find('Country:') + len('Country:')
-                end = html.find('<', start)
-                if end > start:
-                    asn_info['country'] = html[start:end].strip()
+            try:
+                if 'Country:' in html:
+                    start = html.find('Country:') + len('Country:')
+                    end = html.find('<', start)
+                    if end > start:
+                        asn_info['country'] = html[start:end].strip()
+            except:
+                pass
 
             if asn_info:
                 asn_info['type'] = categorize_asn(asn_info.get('name', '').lower())
@@ -204,33 +215,36 @@ def categorize_known_asn(asn_num):
 
 def categorize_asn(name):
     """Categorize ASN based on organization name"""
-    name_lower = name.lower()
+    try:
+        name_lower = name.lower()
 
-    # Cloud providers
-    if any(word in name_lower for word in ['amazon', 'aws', 'google', 'microsoft', 'azure', 'cloudflare', 'digitalocean', 'linode']):
-        return "Cloud Provider"
+        # Cloud providers
+        if any(word in name_lower for word in ['amazon', 'aws', 'google', 'microsoft', 'azure', 'cloudflare', 'digitalocean', 'linode']):
+            return "Cloud Provider"
 
-    # Major ISPs
-    if any(word in name_lower for word in ['comcast', 'verizon', 'att', 'cox', 'spectrum', 'centurylink', 'telecom']):
-        return "Major ISP"
+        # Major ISPs
+        if any(word in name_lower for word in ['comcast', 'verizon', 'att', 'cox', 'spectrum', 'centurylink', 'telecom']):
+            return "Major ISP"
 
-    # Mobile carriers
-    if any(word in name_lower for word in ['tmobile', 'verizon wireless', 'at&t wireless', 'sprint', 'vodafone', 'orange']):
-        return "Mobile Carrier"
+        # Mobile carriers
+        if any(word in name_lower for word in ['tmobile', 'verizon wireless', 'at&t wireless', 'sprint', 'vodafone', 'orange']):
+            return "Mobile Carrier"
 
-    # Universities/Education
-    if any(word in name_lower for word in ['university', 'college', 'edu', 'school', 'academy']):
-        return "Educational"
+        # Universities/Education
+        if any(word in name_lower for word in ['university', 'college', 'edu', 'school', 'academy']):
+            return "Educational"
 
-    # Government
-    if any(word in name_lower for word in ['government', 'gov', 'ministry', 'department', 'state']):
-        return "Government"
+        # Government
+        if any(word in name_lower for word in ['government', 'gov', 'ministry', 'department', 'state']):
+            return "Government"
 
-    # Hosting/VPS
-    if any(word in name_lower for word in ['hosting', 'host', 'vps', 'dedicated', 'server']):
-        return "Hosting Provider"
+        # Hosting/VPS
+        if any(word in name_lower for word in ['hosting', 'host', 'vps', 'dedicated', 'server']):
+            return "Hosting Provider"
 
-    return "Other/Unknown"
+        return "Other/Unknown"
+    except:
+        return "Other/Unknown"
 
 
 # -----------------------------
@@ -280,7 +294,8 @@ def index():
         cursor.close()
         conn.close()
     except Exception as e:
-        print(f"Error logging visitor: {e}")
+        print(f"Database error logging visitor: {e}")
+        # Continue serving the page even if database fails
 
     return render_template(
         "index.html",
@@ -305,10 +320,15 @@ def dashboard():
         rows = cursor.fetchall()
         cursor.close()
         conn.close()
-        
+
         # Convert rows to dictionaries with parsed chain data
         visitors = []
         for row in rows:
+            try:
+                chain_data = json.loads(row["chain"]) if row["chain"] else []
+            except:
+                chain_data = []
+            
             visitor = {
                 "ip": row["ip"],
                 "info": {
@@ -318,7 +338,7 @@ def dashboard():
                     "org": row["org"],
                     "asn": row["asn"],
                 },
-                "chain": json.loads(row["chain"]),
+                "chain": chain_data,
                 "timestamp": row["timestamp"]
             }
             # Add ASN info if available
@@ -329,9 +349,9 @@ def dashboard():
                     pass
             visitors.append(visitor)
     except Exception as e:
-        print(f"Error loading visitors: {e}")
+        print(f"Database error loading visitors: {e}")
         visitors = []
-    
+
     return render_template("dashboard.html", visitors=visitors)
 
 
