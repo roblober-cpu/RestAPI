@@ -34,12 +34,18 @@ def init_db():
             country TEXT,
             org TEXT,
             asn TEXT,
+            asn_info TEXT,
             vpn TEXT,
             chain TEXT,
             timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
-    conn.commit()
+    # Add asn_info column if it doesn't exist (for existing databases)
+    try:
+        cursor.execute("ALTER TABLE visitors ADD COLUMN IF NOT EXISTS asn_info TEXT")
+        conn.commit()
+    except Exception as e:
+        print(f"Column addition warning: {e}")
     cursor.close()
     conn.close()
 
@@ -93,6 +99,13 @@ def lookup_ip_info(ip):
                     "org": data.get("connection", {}).get("org") or data.get("connection", {}).get("isp"),
                     "asn": f"AS{data.get('connection', {}).get('asn')}" if data.get("connection", {}).get("asn") else None,
                 }
+
+                # Add ASN details if available
+                if result.get("asn"):
+                    asn_info = lookup_asn_info(result["asn"])
+                    if asn_info:
+                        result["asn_info"] = asn_info
+
                 ip_cache[ip] = (datetime.now(), result)
                 return result
             else:
@@ -108,41 +121,116 @@ def lookup_ip_info(ip):
     return result
 
 
-def annotate_ip(ip):
-    # Private ranges
-    if ip.startswith("10.") or ip.startswith("192.168.") or ip.startswith("172."):
-        # More accurate private range check
-        parts = ip.split(".")
-        if parts[0] == "172" and 16 <= int(parts[1]) <= 31:
-            return "Private Network / Load Balancer"
-        if parts[0] in ("10", "192"):
-            return "Private Network / Load Balancer"
+def lookup_asn_info(asn):
+    """Look up ASN information to identify the network operator"""
+    if not asn:
+        return None
 
-    # Cloudflare
-    if ip.startswith(("104.", "172.64.", "188.114.")):
-        return "Cloudflare Edge Node"
+    # Clean ASN (remove 'AS' prefix if present)
+    asn_num = asn.replace('AS', '') if asn.startswith('AS') else asn
 
-    # AWS
-    if ip.startswith(("3.", "13.", "18.", "34.", "35.", "52.", "54.")):
-        return "AWS Cloud Server"
+    try:
+        # Use BGP.HE.NET for ASN lookup (reliable and free)
+        url = f"https://bgp.he.net/AS{asn_num}"
+        response = requests.get(url, timeout=5)
 
-    # Google Cloud
-    if ip.startswith(("34.", "35.", "66.102.", "66.249.")):
-        return "Google Cloud Server"
+        if response.status_code == 200:
+            # Parse the HTML response for ASN info
+            html = response.text
+            asn_info = {}
 
-    # Azure
-    if ip.startswith(("20.", "40.", "52.", "104.")):
-        return "Azure Cloud Server"
+            # Extract organization name
+            if 'Organization:' in html:
+                start = html.find('Organization:') + len('Organization:')
+                end = html.find('<', start)
+                if end > start:
+                    asn_info['name'] = html[start:end].strip()
 
-    # Starlink
-    if ip.startswith("100."):
-        return "Starlink CGNAT"
+            # Extract country
+            if 'Country:' in html:
+                start = html.find('Country:') + len('Country:')
+                end = html.find('<', start)
+                if end > start:
+                    asn_info['country'] = html[start:end].strip()
 
-    # Generic VPN ranges (very rough)
-    if ip.startswith(("5.", "37.", "45.", "91.", "95.", "185.")):
-        return "Possible VPN Provider"
+            if asn_info:
+                asn_info['type'] = categorize_asn(asn_info.get('name', '').lower())
+                return asn_info
 
-    return "Public Client or Unknown Proxy"
+    except Exception as e:
+        print(f"ASN lookup failed for {asn}: {e}")
+
+    # Fallback: categorize based on known ASNs
+    return {
+        "name": f"AS{asn_num}",
+        "description": "Unknown ASN",
+        "country": "Unknown",
+        "type": categorize_known_asn(asn_num)
+    }
+
+
+def categorize_known_asn(asn_num):
+    """Categorize well-known ASNs"""
+    known_asns = {
+        # Cloud Providers
+        '15169': 'Cloud Provider',  # Google
+        '16509': 'Cloud Provider',  # Amazon AWS
+        '8075': 'Cloud Provider',   # Microsoft Azure
+        '13335': 'Cloud Provider',  # Cloudflare
+        '14061': 'Cloud Provider',  # DigitalOcean
+        '31898': 'Cloud Provider',  # Oracle Cloud
+
+        # Major ISPs
+        '7018': 'Major ISP',   # AT&T
+        '701': 'Major ISP',    # Verizon
+        '7922': 'Major ISP',   # Comcast
+        '22773': 'Major ISP',  # Cox Communications
+        '11427': 'Major ISP',  # Time Warner Cable
+        '20115': 'Major ISP',  # Charter Communications
+
+        # Mobile Carriers
+        '21928': 'Mobile Carrier',  # T-Mobile
+        '20057': 'Mobile Carrier',  # AT&T Wireless
+        '6167': 'Mobile Carrier',   # Verizon Wireless
+
+        # Universities
+        '73': 'Educational',    # University of Washington
+        '17': 'Educational',    # Purdue University
+        '18': 'Educational',    # University of Texas
+    }
+
+    return known_asns.get(asn_num, "Other/Unknown")
+
+
+def categorize_asn(name):
+    """Categorize ASN based on organization name"""
+    name_lower = name.lower()
+
+    # Cloud providers
+    if any(word in name_lower for word in ['amazon', 'aws', 'google', 'microsoft', 'azure', 'cloudflare', 'digitalocean', 'linode']):
+        return "Cloud Provider"
+
+    # Major ISPs
+    if any(word in name_lower for word in ['comcast', 'verizon', 'att', 'cox', 'spectrum', 'centurylink', 'telecom']):
+        return "Major ISP"
+
+    # Mobile carriers
+    if any(word in name_lower for word in ['tmobile', 'verizon wireless', 'at&t wireless', 'sprint', 'vodafone', 'orange']):
+        return "Mobile Carrier"
+
+    # Universities/Education
+    if any(word in name_lower for word in ['university', 'college', 'edu', 'school', 'academy']):
+        return "Educational"
+
+    # Government
+    if any(word in name_lower for word in ['government', 'gov', 'ministry', 'department', 'state']):
+        return "Government"
+
+    # Hosting/VPS
+    if any(word in name_lower for word in ['hosting', 'host', 'vps', 'dedicated', 'server']):
+        return "Hosting Provider"
+
+    return "Other/Unknown"
 
 
 # -----------------------------
@@ -175,8 +263,8 @@ def index():
         conn = get_db_connection()
         cursor = conn.cursor()
         cursor.execute("""
-            INSERT INTO visitors (ip, city, region, country, org, asn, vpn, chain)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO visitors (ip, city, region, country, org, asn, asn_info, vpn, chain)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             ip,
             info.get("city"),
@@ -184,6 +272,7 @@ def index():
             info.get("country"),
             info.get("org"),
             info.get("asn"),
+            json.dumps(info.get("asn_info")) if info.get("asn_info") else None,
             info.get("security", {}).get("vpn") if "security" in info else None,
             json.dumps(annotated_chain)
         ))
@@ -232,6 +321,12 @@ def dashboard():
                 "chain": json.loads(row["chain"]),
                 "timestamp": row["timestamp"]
             }
+            # Add ASN info if available
+            if row["asn_info"]:
+                try:
+                    visitor["info"]["asn_info"] = json.loads(row["asn_info"])
+                except:
+                    pass
             visitors.append(visitor)
     except Exception as e:
         print(f"Error loading visitors: {e}")

@@ -17,7 +17,11 @@
         <li><strong>Region:</strong> {{ region or "Unknown" }}</li>
         <li><strong>Country:</strong> {{ country or "Unknown" }}</li>
         <li><strong>ISP:</strong> {{ isp or "Unknown" }}</li>
-        <li><strong>ASN:</strong> {{ asn or "Unknown" }}</li>
+        <li><strong>ASN:</strong> {{ asn or "Unknown" }}
+            {% if info.get('asn_info') %}
+                <br><small><em>{{ info.asn_info.name }} ({{ info.asn_info.type }})</em></small>
+            {% endif %}
+        </li>
         <li><strong>VPN Detected:</strong>
             {% if vpn is not none %}
                 {{ vpn }}

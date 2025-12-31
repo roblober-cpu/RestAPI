@@ -49,7 +49,11 @@
 
                 <p><strong>ISP:</strong> {{ v.info.org or "Unknown" }}</p>
 
-                <p><strong>ASN:</strong> {{ v.info.asn or "Unknown" }}</p>
+                <p><strong>ASN:</strong> {{ v.info.asn or "Unknown" }}
+                    {% if v.info.asn_info %}
+                        <br><small><em>{{ v.info.asn_info.name }} ({{ v.info.asn_info.type }})</em></small>
+                    {% endif %}
+                </p>
 
                 <p>
                     <strong>VPN Detected:</strong>
