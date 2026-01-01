@@ -829,11 +829,11 @@ def api_verify():
         # Clean up pending registration
         db_delete_pending_registration(email)
 
-        # Log them in
+        # Log them in and mark geo authentication
         session['user_email'] = email
         session['authenticated'] = True
-
-        return {"success": True, "message": "Account created successfully!"}
+        session['geo_authenticated'] = True
+        return {"success": True, "message": "Account created successfully!", "redirect": url_for('secure')}
 
     except Exception as e:
         print(f"Verification error: {e}")
