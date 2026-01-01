@@ -18,43 +18,50 @@
     <div id="starmap" style="width:100%; max-width:900px; height:600px; margin-bottom:20px;"></div>
     <div id="zodiac-result" style="font-size:1.3em; color:#2c3e50; margin-top:20px;"></div>
 
-    <script src="https://virtualsky.lco.global/virtualsky.min.js"></script>
+    <script src="https://virtualsky.lco.global/virtualsky.min.js" defer></script>
     <script>
-        // Mapping of constellation names to zodiac signs
-        const zodiacMap = {
-            'Aries': 'Aries',
-            'Taurus': 'Taurus',
-            'Gemini': 'Gemini',
-            'Cancer': 'Cancer',
-            'Leo': 'Leo',
-            'Virgo': 'Virgo',
-            'Libra': 'Libra',
-            'Scorpius': 'Scorpio',
-            'Sagittarius': 'Sagittarius',
-            'Capricornus': 'Capricorn',
-            'Aquarius': 'Aquarius',
-            'Pisces': 'Pisces'
-        };
-
-        var sky = new VirtualSky({
-            id: 'starmap',
-            projection: 'stereo',
-            constellations: true,
-            constellationslabels: true
-        });
-
-        sky.addEventHandler('click', function(e) {
-            if (e.constellation) {
-                const name = e.constellation.name;
-                let zodiac = zodiacMap[name];
-                let resultDiv = document.getElementById('zodiac-result');
-                if (zodiac) {
-                    resultDiv.textContent = `Zodiac sign: ${zodiac}`;
-                } else {
-                    resultDiv.textContent = `"${name}" is not a zodiac constellation.`;
-                }
-            }
-        });
+      document.addEventListener('DOMContentLoaded', function() {
+        function initStarMap() {
+          if (typeof VirtualSky === 'undefined') {
+            setTimeout(initStarMap, 100);
+            return;
+          }
+          // Mapping of constellation names to zodiac signs
+          const zodiacMap = {
+              'Aries': 'Aries',
+              'Taurus': 'Taurus',
+              'Gemini': 'Gemini',
+              'Cancer': 'Cancer',
+              'Leo': 'Leo',
+              'Virgo': 'Virgo',
+              'Libra': 'Libra',
+              'Scorpius': 'Scorpio',
+              'Sagittarius': 'Sagittarius',
+              'Capricornus': 'Capricorn',
+              'Aquarius': 'Aquarius',
+              'Pisces': 'Pisces'
+          };
+          var sky = new VirtualSky({
+              id: 'starmap',
+              projection: 'stereo',
+              constellations: true,
+              constellationslabels: true
+          });
+          sky.addEventHandler('click', function(e) {
+              if (e.constellation) {
+                  const name = e.constellation.name;
+                  let zodiac = zodiacMap[name];
+                  let resultDiv = document.getElementById('zodiac-result');
+                  if (zodiac) {
+                      resultDiv.textContent = `Zodiac sign: ${zodiac}`;
+                  } else {
+                      resultDiv.textContent = `"${name}" is not a zodiac constellation.`;
+                  }
+              }
+          });
+        }
+        initStarMap();
+      });
     </script>
 </body>
 </html>
