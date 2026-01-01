@@ -933,7 +933,13 @@ def api_validate_geographic():
         success, message = validate_geographic_challenge(challenge_key, lat, lng)
 
         if success:
-            session['geo_authenticated'] = True
+            # Store geo auth as a dict with user, IP, timestamp, and challenge_key
+            session['geo_authenticated'] = {
+                'user': session.get('user_email'),
+                'ip': get_client_ip(),
+                'ts': datetime.utcnow().isoformat(),
+                'challenge_key': challenge_key
+            }
             return {"success": True, "message": message, "redirect": url_for('secure')}
         else:
             return {"success": False, "message": message}
@@ -944,8 +950,32 @@ def api_validate_geographic():
 @app.route("/secure")
 def secure():
     """Secure page, only accessible after geographic authentication"""
-    if not session.get('geo_authenticated'):
+    geo_auth = session.get('geo_authenticated')
+    ip = get_client_ip()
+    from datetime import datetime, timedelta
+    # If geo_auth is for Granny's driveway and recent, allow access (Rob privilege)
+    if geo_auth and geo_auth.get('challenge_key') == 'granny_driveway' and geo_auth.get('ip') == ip:
+        try:
+            ts = datetime.fromisoformat(geo_auth.get('ts'))
+            if datetime.utcnow() - ts <= timedelta(minutes=5):
+                session.pop('geo_authenticated', None)
+                return render_template("secure.html")
+        except:
+            session.pop('geo_authenticated', None)
+            return redirect(url_for('login'))
+    # Otherwise, require login and geo_auth for logged-in user
+    user = session.get('user_email')
+    if not geo_auth or geo_auth.get('user') != user or geo_auth.get('ip') != ip:
         return redirect(url_for('login'))
+    try:
+        ts = datetime.fromisoformat(geo_auth.get('ts'))
+        if datetime.utcnow() - ts > timedelta(minutes=5):
+            session.pop('geo_authenticated', None)
+            return redirect(url_for('login'))
+    except:
+        session.pop('geo_authenticated', None)
+        return redirect(url_for('login'))
+    session.pop('geo_authenticated', None)
     return render_template("secure.html")
 
 @app.route("/profile")
