@@ -932,14 +932,21 @@ def api_validate_geographic():
 
         success, message = validate_geographic_challenge(challenge_key, lat, lng)
 
-        return {
-            "success": success,
-            "message": message
-        }
+        if success:
+            session['geo_authenticated'] = True
+            return {"success": True, "message": message, "redirect": url_for('secure')}
+        else:
+            return {"success": False, "message": message}
 
     except Exception as e:
         print(f"Geographic validation error: {e}")
         return {"success": False, "message": "Validation failed"}, 500
+@app.route("/secure")
+def secure():
+    """Secure page, only accessible after geographic authentication"""
+    if not session.get('geo_authenticated'):
+        return redirect(url_for('login'))
+    return render_template("secure.html")
 
 @app.route("/profile")
 def profile():
