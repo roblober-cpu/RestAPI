@@ -15,53 +15,61 @@
     </div>
 
     <h2>Pick a Constellation</h2>
-    <div id="starmap" style="width:100%; max-width:900px; height:600px; margin-bottom:20px;"></div>
+    <div id="starmap1" style="width:100%; max-width:900px; height:600px; margin-bottom:20px;"></div>
     <div id="zodiac-result" style="font-size:1.3em; color:#2c3e50; margin-top:20px;"></div>
+    <div id="starmap-error" style="color: #b30000; font-size:1.1em; margin-top:15px;"></div>
 
-    <script src="https://virtualsky.lco.global/virtualsky.min.js" defer></script>
+    <!--[if lt IE 9]><script src="/static/excanvas.min.js"></script><![endif]-->
+    <script src="/static/jquery-1.10.0.min.js"></script>
+    <script src="/static/virtualsky.min.js"></script>
     <script>
-      document.addEventListener('DOMContentLoaded', function() {
-        function initStarMap() {
-          if (typeof VirtualSky === 'undefined') {
-            setTimeout(initStarMap, 100);
-            return;
-          }
-          // Mapping of constellation names to zodiac signs
-          const zodiacMap = {
-              'Aries': 'Aries',
-              'Taurus': 'Taurus',
-              'Gemini': 'Gemini',
-              'Cancer': 'Cancer',
-              'Leo': 'Leo',
-              'Virgo': 'Virgo',
-              'Libra': 'Libra',
-              'Scorpius': 'Scorpio',
-              'Sagittarius': 'Sagittarius',
-              'Capricornus': 'Capricorn',
-              'Aquarius': 'Aquarius',
-              'Pisces': 'Pisces'
-          };
-          var sky = new VirtualSky({
-              id: 'starmap',
-              projection: 'stereo',
-              constellations: true,
-              constellationslabels: true
-          });
-          sky.addEventHandler('click', function(e) {
-              if (e.constellation) {
-                  const name = e.constellation.name;
-                  let zodiac = zodiacMap[name];
-                  let resultDiv = document.getElementById('zodiac-result');
-                  if (zodiac) {
-                      resultDiv.textContent = `Zodiac sign: ${zodiac}`;
-                  } else {
-                      resultDiv.textContent = `"${name}" is not a zodiac constellation.`;
-                  }
-              }
-          });
+    $(document).ready(function() {
+        try {
+            const zodiacMap = {
+                'Aries': 'Aries',
+                'Taurus': 'Taurus',
+                'Gemini': 'Gemini',
+                'Cancer': 'Cancer',
+                'Leo': 'Leo',
+                'Virgo': 'Virgo',
+                'Libra': 'Libra',
+                'Scorpius': 'Scorpio',
+                'Sagittarius': 'Sagittarius',
+                'Capricornus': 'Capricorn',
+                'Aquarius': 'Aquarius',
+                'Pisces': 'Pisces'
+            };
+            var sky = $.virtualsky({
+                id: 'starmap1',
+                projection: 'stereo',
+                constellations: true,
+                constellationslabels: true
+            });
+            // Listen for constellation clicks
+            $('#starmap1').on('click', function(e) {
+                // VirtualSky does not natively provide constellation click events in jQuery mode,
+                // so this is a placeholder for custom event logic if needed.
+                // You may need to extend VirtualSky or use the JS API for full interactivity.
+            });
+            // If using the JS API, you can add event handlers as before:
+            if (typeof sky.addEventHandler === 'function') {
+                sky.addEventHandler('click', function(e) {
+                    if (e.constellation) {
+                        const name = e.constellation.name;
+                        let zodiac = zodiacMap[name];
+                        let resultDiv = document.getElementById('zodiac-result');
+                        if (zodiac) {
+                            resultDiv.textContent = `Zodiac sign: ${zodiac}`;
+                        } else {
+                            resultDiv.textContent = `"${name}" is not a zodiac constellation.`;
+                        }
+                    }
+                });
+            }
+        } catch (err) {
+            document.getElementById('starmap-error').textContent = 'Error initializing star map: ' + err.message;
         }
-        initStarMap();
-      });
+    });
     </script>
 </body>
 </html>
