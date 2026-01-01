@@ -69,5 +69,4 @@ def calculate_distance_display(distance_km):
     if distance_km < 1:
         return f"{round(distance_km * 1000)} meters"
     else:
-        return f"{round(distance_km, 1)} km"</content>
-<parameter name="filePath">/Users/robertlober/Documents/Deploy to Render/utils.py
+        return f"{round(distance_km, 1)} km"

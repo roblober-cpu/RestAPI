@@ -9,10 +9,10 @@ import os
 from datetime import datetime, timedelta
 
 # Import our modules
-from .database import init_database, db_save_visitor, db_create_user, db_get_user_by_email, db_update_user_login
-from .auth import hash_password, verify_password, validate_geographic_challenge, authenticate_user
-from .network import analyze_visitor_network, save_visitor_data, get_ip_coordinates
-from .utils import get_client_ip, validate_email, validate_phone, generate_verification_code
+from database import init_database, db_save_visitor, db_create_user, db_get_user_by_email, db_update_user_login
+from auth import hash_password, verify_password, validate_geographic_challenge, authenticate_user
+from network import analyze_visitor_network, save_visitor_data, get_ip_coordinates
+from utils import get_client_ip, validate_email, validate_phone, generate_verification_code
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "your-secret-key")
@@ -48,6 +48,7 @@ except ImportError:
 # -----------------------------
 #  Session Setup
 # -----------------------------
+def init_database():
     """Initialize database schema"""
     if not DB_AVAILABLE or not DATABASE_URL:
         print("Database not configured, skipping initialization")
@@ -144,12 +145,7 @@ except ImportError:
     except Exception as e:
         print(f"Database initialization error: {e}")
 
-# Try to initialize database
-try:
-    init_db()
-except Exception as e:
-    print(f"Database initialization error: {e}")
-    # Continue running even if DB init fails
+# Database initialization completed above
 
 
 # -----------------------------

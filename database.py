@@ -313,5 +313,4 @@ def db_delete_pending_registration(email):
         return True
     except Exception as e:
         print(f"Database pending registration delete error: {e}")
-        return False</content>
-<parameter name="filePath">/Users/robertlober/Documents/Deploy to Render/database.py
+        return False

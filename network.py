@@ -5,7 +5,7 @@ Network analysis module for IP identification, ASN categorization, and VPN detec
 import requests
 import json
 from datetime import datetime, timedelta
-from .database import db_save_visitor
+from database import db_save_visitor
 
 # IP cache for geolocation results
 ip_cache = {}
@@ -256,5 +256,4 @@ def save_visitor_data(ip, network_analysis):
         org=network_analysis['info'].get('org'),
         asn=network_analysis['info'].get('asn'),
         vpn=network_analysis['classification']['category'] if network_analysis['classification']['category'] == 'VPN' else None
-    )</content>
-<parameter name="filePath">/Users/robertlober/Documents/Deploy to Render/network.py
+    )

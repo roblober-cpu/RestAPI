@@ -6,7 +6,7 @@ Handles password hashing, geographic authentication, and user verification.
 import hashlib
 import secrets
 from math import radians, sin, cos, sqrt, atan2
-from .database import db_get_system_config, db_get_user_by_email, db_check_user_exists
+from database import db_get_system_config, db_get_user_by_email, db_check_user_exists
 
 def hash_password(password):
     """Hash password with salt using SHA-256"""
@@ -77,5 +77,4 @@ def authenticate_user(email, password):
 def check_user_registration_eligibility(email):
     """Check if a user can register with this email"""
     exists = db_check_user_exists(email)
-    return not exists, "Email already registered" if exists else None</content>
-<parameter name="filePath">/Users/robertlober/Documents/Deploy to Render/auth.py
+    return not exists, "Email already registered" if exists else None
