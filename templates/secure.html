@@ -23,8 +23,25 @@
     <script src="/static/jquery-1.10.0.min.js"></script>
     <script src="/static/virtualsky.min.js"></script>
     <script>
+    // Debug: Check if virtualsky and jQuery loaded
+    console.log('After script load:');
+    console.log('jQuery:', typeof window.jQuery);
+    console.log('window.virtualsky type:', typeof window.virtualsky);
+    console.log('All window keys with virtualsky:', Object.keys(window).filter(k => k.includes('virtual')));
+    
+    // Wait for DOM to be ready
     $(document).ready(function() {
+        console.log('In ready handler:');
+        console.log('window.virtualsky:', typeof window.virtualsky);
+        
         try {
+            // Make sure virtualsky exists
+            if (typeof window.virtualsky !== 'function') {
+                console.error('window.virtualsky is not available!');
+                console.log('window keys containing sky:', Object.keys(window).filter(k => k.includes('sky')));
+                throw new Error('VirtualSky library failed to load. Type: ' + typeof window.virtualsky);
+            }
+            
             const zodiacMap = {
                 'Aries': 'Aries',
                 'Taurus': 'Taurus',
@@ -39,19 +56,23 @@
                 'Aquarius': 'Aquarius',
                 'Pisces': 'Pisces'
             };
-            // Use window.virtualsky directly
+            
+            // Create star map
+            console.log('Creating star map...');
             var sky = window.virtualsky({
                 id: 'starmap1',
                 projection: 'stereo',
                 constellations: true,
                 constellationslabels: true
             });
+            
+            console.log('Star map created successfully:', sky);
+            
             // Listen for constellation clicks
             $('#starmap1').on('click', function(e) {
-                // VirtualSky does not natively provide constellation click events in jQuery mode,
-                // so this is a placeholder for custom event logic if needed.
-                // You may need to extend VirtualSky or use the JS API for full interactivity.
+                console.log('Star map clicked');
             });
+            
             // If using the JS API, you can add event handlers as before:
             if (typeof sky.addEventHandler === 'function') {
                 sky.addEventHandler('click', function(e) {
@@ -68,6 +89,7 @@
                 });
             }
         } catch (err) {
+            console.error('Star map error caught:', err);
             document.getElementById('starmap-error').textContent = 'Error initializing star map: ' + err.message;
         }
     });
