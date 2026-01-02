@@ -23,6 +23,11 @@
     <script src="/static/jquery-1.10.0.min.js"></script>
     <script src="/static/virtualsky.min.js"></script>
     <script>
+    // Expose virtualsky on window (it's on jQuery by default)
+    if (typeof window.jQuery !== 'undefined' && typeof window.jQuery.virtualsky !== 'undefined') {
+        window.virtualsky = window.jQuery.virtualsky;
+    }
+    
     // Debug: Check if virtualsky and jQuery loaded
     console.log('After script load:');
     console.log('jQuery:', typeof window.jQuery);
