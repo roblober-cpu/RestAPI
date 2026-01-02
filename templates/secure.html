@@ -20,28 +20,17 @@
     <div id="starmap-error" style="color: #b30000; font-size:1.1em; margin-top:15px;"></div>
 
     <!--[if lt IE 9]><script src="/static/excanvas.min.js"></script><![endif]-->
-    <script src="/static/jquery-1.10.0.min.js"></script>
-    <script>
-    // Ensure jQuery.ajax exists on document wrapper
-    if (window.jQuery && typeof window.jQuery.ajax === 'function') {
-        // jQuery already has ajax, good to go
-        console.log('jQuery.ajax available');
-    }
-    </script>
+    <script src="/static/stuquery.min.js"></script>
     <script src="/static/virtualsky.min.js"></script>
     <script>
-    // Expose virtualsky on window (it's set on jQuery by VirtualSky)
-    if (typeof window.jQuery.virtualsky !== 'undefined') {
-        window.virtualsky = window.jQuery.virtualsky;
-    } else {
-        console.error('virtualsky not found on jQuery');
-        console.log('jQuery keys:', Object.keys(window.jQuery).filter(k => k.includes('virtual') || k.includes('sky')));
+    // Expose virtualsky on window (it's set on stuQuery by VirtualSky)
+    if (typeof stuQuery !== 'undefined' && stuQuery.virtualsky !== 'undefined') {
+        window.virtualsky = stuQuery.virtualsky;
     }
     
-    // Debug: Check if virtualsky and jQuery loaded
+    // Debug: Check if virtualsky and stuQuery loaded
     console.log('After script load:');
-    console.log('jQuery:', typeof window.jQuery);
-    console.log('jQuery.virtualsky:', typeof window.jQuery.virtualsky);
+    console.log('stuQuery:', typeof stuQuery);
     console.log('window.virtualsky type:', typeof window.virtualsky);
     console.log('All window keys with virtualsky:', Object.keys(window).filter(k => k.includes('virtual')));
     
@@ -83,6 +72,10 @@
                 constellationboundaries: false,
                 showstars: true,
                 showstarlabels: false,
+                showplanets: false,
+                showplanetlabels: false,
+                showorbits: false,
+                showgalaxy: false,
                 showdate: false,
                 showposition: false,
                 keyboard: false,
