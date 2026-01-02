@@ -78,12 +78,16 @@
             var sky = window.virtualsky({
                 id: 'starmap1',
                 projection: 'stereo',
-                constellations: true,
-                constellationlabels: true,
+                constellations: false,
+                constellationlabels: false,
+                constellationboundaries: false,
+                showstars: true,
+                showstarlabels: false,
                 showdate: false,
                 showposition: false,
                 keyboard: false,
-                mouse: true
+                mouse: true,
+                live: false
             });
             
             console.log('Star map created successfully:', sky);
