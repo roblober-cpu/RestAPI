@@ -22,39 +22,26 @@
     <!--[if lt IE 9]><script src="/static/excanvas.min.js"></script><![endif]-->
     <script src="/static/jquery-1.10.0.min.js"></script>
     <script>
-    // Create a wrapper to ensure jQuery works with VirtualSky
-    var jQueryWrapper = function(selector) {
-        var jq = window.jQuery(selector);
-        // Ensure ajax method exists
-        if (!jq.ajax) {
-            jq.ajax = window.jQuery.ajax;
-        }
-        return jq;
-    };
-    // Copy jQuery static methods
-    for (var key in window.jQuery) {
-        if (window.jQuery.hasOwnProperty(key)) {
-            jQueryWrapper[key] = window.jQuery[key];
-        }
+    // Ensure jQuery.ajax exists on document wrapper
+    if (window.jQuery && typeof window.jQuery.ajax === 'function') {
+        // jQuery already has ajax, good to go
+        console.log('jQuery.ajax available');
     }
-    // Store original jQuery
-    var OriginalJQuery = window.jQuery;
-    // Replace jQuery with wrapper for VirtualSky loading
-    window.jQuery = jQueryWrapper;
     </script>
     <script src="/static/virtualsky.min.js"></script>
     <script>
-    // Restore original jQuery
-    window.jQuery = OriginalJQuery;
-    
-    // Expose virtualsky on window (it's on jQuery by default)
-    if (typeof window.jQuery !== 'undefined' && typeof window.jQuery.virtualsky !== 'undefined') {
+    // Expose virtualsky on window (it's set on jQuery by VirtualSky)
+    if (typeof window.jQuery.virtualsky !== 'undefined') {
         window.virtualsky = window.jQuery.virtualsky;
+    } else {
+        console.error('virtualsky not found on jQuery');
+        console.log('jQuery keys:', Object.keys(window.jQuery).filter(k => k.includes('virtual') || k.includes('sky')));
     }
     
     // Debug: Check if virtualsky and jQuery loaded
     console.log('After script load:');
     console.log('jQuery:', typeof window.jQuery);
+    console.log('jQuery.virtualsky:', typeof window.jQuery.virtualsky);
     console.log('window.virtualsky type:', typeof window.virtualsky);
     console.log('All window keys with virtualsky:', Object.keys(window).filter(k => k.includes('virtual')));
     
