@@ -6,6 +6,9 @@
         body { font-family: Arial, sans-serif; margin: 30px; }
         h1 { color: #2c3e50; }
         .info { margin-top: 20px; padding: 15px; background: #f4f4f4; border-radius: 8px; }
+        #starmap1 { width: 100%; max-width: 900px; height: 600px; margin-bottom: 20px; border: 1px solid #ccc; }
+        #zodiac-result { font-size: 1.3em; color: #2c3e50; margin-top: 20px; font-weight: bold; }
+        .error { color: #b30000; font-size: 1.1em; margin-top: 15px; }
     </style>
 </head>
 <body>
@@ -15,39 +18,43 @@
     </div>
 
     <h2>Pick a Constellation</h2>
-    <div id="starmap1" style="width:100%; max-width:900px; height:600px; margin-bottom:20px;"></div>
-    <div id="zodiac-result" style="font-size:1.3em; color:#2c3e50; margin-top:20px;"></div>
-    <div id="starmap-error" style="color: #b30000; font-size:1.1em; margin-top:15px;"></div>
+    <div id="starmap1"></div>
+    <div id="zodiac-result"></div>
+    <div id="starmap-error" class="error"></div>
 
-    <!--[if lt IE 9]><script src="/static/excanvas.min.js"></script><![endif]-->
-    <script src="/static/stuquery.min.js"></script>
-    <script src="/static/virtualsky.min.js"></script>
+    <script src="/static/stuquery.js"></script>
     <script>
-    // Expose virtualsky on window (it's set on stuQuery by VirtualSky)
-    if (typeof stuQuery !== 'undefined' && stuQuery.virtualsky !== 'undefined') {
-        window.virtualsky = stuQuery.virtualsky;
+    console.log('Page loaded, stuquery.js should be loaded');
+    console.log('window.S:', typeof window.S);
+    
+    // Now load virtualsky.js dynamically - this ensures S is available
+    function loadVirtualSky() {
+        console.log('Loading virtualsky.js, S is:', typeof window.S);
+        var script = document.createElement('script');
+        script.src = '/static/virtualsky.js';
+        script.onload = function() {
+            console.log('virtualsky.js loaded');
+            initializeSky();
+        };
+        script.onerror = function() {
+            document.getElementById('starmap-error').textContent = 'Failed to load VirtualSky library';
+            console.error('Failed to load virtualsky.js');
+        };
+        document.head.appendChild(script);
     }
     
-    // Debug: Check if virtualsky and stuQuery loaded
-    console.log('After script load:');
-    console.log('stuQuery:', typeof stuQuery);
-    console.log('window.virtualsky type:', typeof window.virtualsky);
-    console.log('All window keys with virtualsky:', Object.keys(window).filter(k => k.includes('virtual')));
-    
-    // Wait for DOM to be ready
-    $(document).ready(function() {
-        console.log('In ready handler:');
-        console.log('window.virtualsky:', typeof window.virtualsky);
-        
+    // Wait a tiny bit to ensure stuquery.js is fully processed
+    setTimeout(loadVirtualSky, 100);
+
+    function initializeSky() {
         try {
-            // Make sure virtualsky exists
-            if (typeof window.virtualsky !== 'function') {
-                console.error('window.virtualsky is not available!');
-                console.log('window keys containing sky:', Object.keys(window).filter(k => k.includes('sky')));
-                throw new Error('VirtualSky library failed to load. Type: ' + typeof window.virtualsky);
+            // Check if S.virtualsky is available
+            if (typeof S === 'undefined' || typeof S.virtualsky !== 'function') {
+                throw new Error('VirtualSky not properly initialized. S.virtualsky is not a function.');
             }
-            
-            const zodiacMap = {
+
+            // Zodiac constellation mapping
+            var zodiacMap = {
                 'Aries': 'Aries',
                 'Taurus': 'Taurus',
                 'Gemini': 'Gemini',
@@ -61,55 +68,52 @@
                 'Aquarius': 'Aquarius',
                 'Pisces': 'Pisces'
             };
-            
-            // Create star map
-            console.log('Creating star map...');
-            var sky = window.virtualsky({
+
+            // Initialize VirtualSky with constellation features
+            var sky = S.virtualsky({
                 id: 'starmap1',
                 projection: 'stereo',
-                constellations: false,
-                constellationlabels: false,
-                constellationboundaries: false,
+                constellations: true,
+                constellationlabels: true,
                 showstars: true,
                 showstarlabels: false,
                 showplanets: false,
                 showplanetlabels: false,
-                showorbits: false,
-                showgalaxy: false,
                 showdate: false,
                 showposition: false,
                 keyboard: false,
                 mouse: true,
                 live: false
             });
-            
-            console.log('Star map created successfully:', sky);
-            
-            // Listen for constellation clicks
-            $('#starmap1').on('click', function(e) {
-                console.log('Star map clicked');
-            });
-            
-            // If using the JS API, you can add event handlers as before:
-            if (typeof sky.addEventHandler === 'function') {
-                sky.addEventHandler('click', function(e) {
-                    if (e.constellation) {
-                        const name = e.constellation.name;
-                        let zodiac = zodiacMap[name];
-                        let resultDiv = document.getElementById('zodiac-result');
+
+            console.log('VirtualSky initialized:', sky);
+
+            // Handle clicks on the star map
+            sky.on('click', function(e) {
+                console.log('Click event:', e);
+                if (e.ra !== undefined && e.dec !== undefined) {
+                    // Get nearest constellation to click point
+                    var nearest = sky.nearestObject(e.x, e.y);
+                    console.log('Nearest object:', nearest);
+                    if (nearest && nearest.label) {
+                        var zodiac = zodiacMap[nearest.label];
                         if (zodiac) {
-                            resultDiv.textContent = `Zodiac sign: ${zodiac}`;
+                            document.getElementById('zodiac-result').textContent = 
+                                'Zodiac sign: ' + zodiac;
                         } else {
-                            resultDiv.textContent = `"${name}" is not a zodiac constellation.`;
+                            document.getElementById('zodiac-result').textContent = 
+                                '"' + nearest.label + '" is not a zodiac constellation.';
                         }
                     }
-                });
-            }
+                }
+            });
+
         } catch (err) {
-            console.error('Star map error caught:', err);
-            document.getElementById('starmap-error').textContent = 'Error initializing star map: ' + err.message;
+            document.getElementById('starmap-error').textContent = 
+                'Error initializing star map: ' + err.message;
+            console.error('VirtualSky Error:', err);
         }
-    });
+    }
     </script>
 </body>
 </html>
