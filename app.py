@@ -950,12 +950,21 @@ def api_validate_geographic():
 @app.route("/secure-bypass")
 def secure_bypass():
     """TEMPORARY BYPASS - Direct access to secure page for testing"""
-    return render_template("secure.html")
+    from datetime import datetime
+    # Use Granny's driveway location for testing
+    location_data = {
+        'lat': system_config_db['granny_driveway']['lat'],
+        'lng': system_config_db['granny_driveway']['lng'],
+        'name': system_config_db['granny_driveway']['name']
+    }
+    current_time = datetime.utcnow().isoformat()
+    return render_template("secure.html", location=location_data, current_time=current_time)
 
 
 @app.route("/secure")
 def secure():
     """Secure page, only accessible after geographic authentication"""
+    from datetime import datetime
     geo_auth = session.get('geo_authenticated')
     ip = get_client_ip()
     from datetime import datetime, timedelta
@@ -964,8 +973,14 @@ def secure():
         try:
             ts = datetime.fromisoformat(geo_auth.get('ts'))
             if datetime.utcnow() - ts <= timedelta(minutes=5):
+                location_data = {
+                    'lat': geo_auth.get('lat'),
+                    'lng': geo_auth.get('lng'),
+                    'name': 'Authenticated Location'
+                }
+                current_time = datetime.utcnow().isoformat()
                 session.pop('geo_authenticated', None)
-                return render_template("secure.html")
+                return render_template("secure.html", location=location_data, current_time=current_time)
         except:
             session.pop('geo_authenticated', None)
             return redirect(url_for('login'))
@@ -978,11 +993,17 @@ def secure():
         if datetime.utcnow() - ts > timedelta(minutes=5):
             session.pop('geo_authenticated', None)
             return redirect(url_for('login'))
+        location_data = {
+            'lat': geo_auth.get('lat'),
+            'lng': geo_auth.get('lng'),
+            'name': 'Authenticated Location'
+        }
+        current_time = datetime.utcnow().isoformat()
+        session.pop('geo_authenticated', None)
+        return render_template("secure.html", location=location_data, current_time=current_time)
     except:
         session.pop('geo_authenticated', None)
         return redirect(url_for('login'))
-    session.pop('geo_authenticated', None)
-    return render_template("secure.html")
 
 @app.route("/profile")
 def profile():

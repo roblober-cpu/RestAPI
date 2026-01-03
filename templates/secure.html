@@ -18,14 +18,21 @@
     </div>
 
     <h2>Pick a Constellation</h2>
+    <p><em>{{ location.name }} — {{ current_time }}</em></p>
     <div id="starmap1"></div>
     <div id="zodiac-result"></div>
     <div id="starmap-error" class="error"></div>
 
     <script src="/static/stuquery.js"></script>
     <script>
+    // Get location and time data from Flask
+    var locationData = {{ location | tojson }};
+    var currentTime = new Date('{{ current_time }}');
+    
     console.log('Page loaded, stuquery.js should be loaded');
     console.log('window.S:', typeof window.S);
+    console.log('Location:', locationData);
+    console.log('Time:', currentTime);
     
     // Now load virtualsky.js dynamically - this ensures S is available
     function loadVirtualSky() {
@@ -73,21 +80,36 @@
             var sky = S.virtualsky({
                 id: 'starmap1',
                 projection: 'merc',
-                scale: 1.5,
+                scale: 2.0,
+                latitude: locationData ? locationData.lat : 0,
+                longitude: locationData ? locationData.lng : 0,
+                date: currentTime,
                 constellations: true,
                 constellationlabels: true,
                 showstars: true,
                 showstarlabels: false,
                 showplanets: false,
                 showplanetlabels: false,
-                showdate: false,
-                showposition: false,
+                showdate: true,
+                showposition: true,
                 keyboard: false,
                 mouse: true,
                 live: false
             });
 
             console.log('VirtualSky initialized:', sky);
+
+            // Add mouse wheel zoom functionality
+            var canvas = document.getElementById('starmap1');
+            canvas.addEventListener('wheel', function(e) {
+                e.preventDefault();
+                var zoomFactor = 0.1;
+                var newScale = sky.scale + (e.deltaY > 0 ? -zoomFactor : zoomFactor);
+                // Constrain scale between 0.5 and 5.0
+                newScale = Math.max(0.5, Math.min(5.0, newScale));
+                sky.scale = newScale;
+                sky.draw();
+            }, { passive: false });
 
             // Handle clicks on the star map
             sky.on('click', function(e) {
