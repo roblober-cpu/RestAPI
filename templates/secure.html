@@ -114,43 +114,47 @@
             // Handle clicks on the star map
             sky.on('click', function(e) {
                 console.log('Click event:', e);
-                if (e.ra !== undefined && e.dec !== undefined) {
-                    // Get nearest constellation to click point
-                    var nearest = sky.nearestObject(e.x, e.y);
-                    console.log('Nearest object:', nearest);
-                    if (nearest && nearest.label) {
-                        // Fetch constellation info from server
-                        fetch('/api/constellation_info', {
-                            method: 'POST',
-                            headers: {
-                                'Content-Type': 'application/json'
-                            },
-                            body: JSON.stringify({
-                                constellation: nearest.label
-                            })
+                console.log('Click position:', e.x, e.y);
+                
+                // Get nearest constellation to click point
+                var nearest = sky.nearestObject(e.x, e.y);
+                console.log('Nearest object:', nearest);
+                
+                if (nearest && nearest.label) {
+                    console.log('Found constellation:', nearest.label);
+                    // Fetch constellation info from server
+                    fetch('/api/constellation_info', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({
+                            constellation: nearest.label
                         })
-                        .then(response => response.json())
-                        .then(data => {
-                            console.log('Constellation info:', data);
-                            if (data.success) {
-                                var astro = data.astrology;
-                                document.getElementById('zodiac-result').innerHTML = 
-                                    '<strong>' + astro.zodiac_sign + ' ' + astro.symbol + '</strong><br>' +
-                                    'Element: ' + astro.element + '<br>' +
-                                    'Ruling Planet: ' + astro.ruling_planet + '<br>' +
-                                    'Dates: ' + astro.date_range + '<br>' +
-                                    'Characteristics: ' + astro.characteristics;
-                            } else {
-                                document.getElementById('zodiac-result').textContent = 
-                                    '"' + nearest.label + '" is not a zodiac constellation.';
-                            }
-                        })
-                        .catch(error => {
-                            console.error('Error fetching constellation info:', error);
+                    })
+                    .then(response => response.json())
+                    .then(data => {
+                        console.log('Constellation info response:', data);
+                        if (data.success) {
+                            var astro = data.astrology;
+                            document.getElementById('zodiac-result').innerHTML = 
+                                '<strong>' + astro.zodiac_sign + ' ' + astro.symbol + '</strong><br>' +
+                                'Element: ' + astro.element + '<br>' +
+                                'Ruling Planet: ' + astro.ruling_planet + '<br>' +
+                                'Dates: ' + astro.date_range + '<br>' +
+                                'Characteristics: ' + astro.characteristics;
+                        } else {
                             document.getElementById('zodiac-result').textContent = 
-                                'Error retrieving constellation information.';
-                        });
-                    }
+                                '"' + nearest.label + '" is not a zodiac constellation.';
+                        }
+                    })
+                    .catch(error => {
+                        console.error('Error fetching constellation info:', error);
+                        document.getElementById('zodiac-result').textContent = 
+                            'Error retrieving constellation information.';
+                    });
+                } else {
+                    console.log('No constellation found at click location');
                 }
             });
 
