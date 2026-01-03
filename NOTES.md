@@ -36,14 +36,9 @@ A bot/human classifier
 A dark mode UI
 
 
-## TODOs
-- 
 
-## Ideas
-- 
+"/Users/robertlober/Documents/Deploy to Render/.venv/bin/python" app.py
 
-## Debugging Notes
-- 
 
----
-*Use this file for quick notes, ideas, and temporary thoughts while working on the project.*
+
+
