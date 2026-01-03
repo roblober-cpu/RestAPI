@@ -31,6 +31,106 @@ system_config_db = {
     }
 }
 
+# Constellation to astrology mapping
+constellation_astrology = {
+    'Aries': {
+        'zodiac_sign': 'Aries',
+        'symbol': '♈',
+        'element': 'Fire',
+        'ruling_planet': 'Mars',
+        'date_range': 'March 21 - April 19',
+        'characteristics': 'Bold, courageous, passionate, confident'
+    },
+    'Taurus': {
+        'zodiac_sign': 'Taurus',
+        'symbol': '♉',
+        'element': 'Earth',
+        'ruling_planet': 'Venus',
+        'date_range': 'April 20 - May 20',
+        'characteristics': 'Reliable, stable, practical, sensual'
+    },
+    'Gemini': {
+        'zodiac_sign': 'Gemini',
+        'symbol': '♊',
+        'element': 'Air',
+        'ruling_planet': 'Mercury',
+        'date_range': 'May 21 - June 20',
+        'characteristics': 'Curious, communicative, adaptable, intellectual'
+    },
+    'Cancer': {
+        'zodiac_sign': 'Cancer',
+        'symbol': '♋',
+        'element': 'Water',
+        'ruling_planet': 'Moon',
+        'date_range': 'June 21 - July 22',
+        'characteristics': 'Emotional, intuitive, nurturing, protective'
+    },
+    'Leo': {
+        'zodiac_sign': 'Leo',
+        'symbol': '♌',
+        'element': 'Fire',
+        'ruling_planet': 'Sun',
+        'date_range': 'July 23 - August 22',
+        'characteristics': 'Creative, confident, generous, dramatic'
+    },
+    'Virgo': {
+        'zodiac_sign': 'Virgo',
+        'symbol': '♍',
+        'element': 'Earth',
+        'ruling_planet': 'Mercury',
+        'date_range': 'August 23 - September 22',
+        'characteristics': 'Analytical, practical, detail-oriented, reliable'
+    },
+    'Libra': {
+        'zodiac_sign': 'Libra',
+        'symbol': '♎',
+        'element': 'Air',
+        'ruling_planet': 'Venus',
+        'date_range': 'September 23 - October 22',
+        'characteristics': 'Diplomatic, balanced, social, fair-minded'
+    },
+    'Scorpius': {
+        'zodiac_sign': 'Scorpio',
+        'symbol': '♏',
+        'element': 'Water',
+        'ruling_planet': 'Pluto',
+        'date_range': 'October 23 - November 21',
+        'characteristics': 'Intense, passionate, secretive, determined'
+    },
+    'Sagittarius': {
+        'zodiac_sign': 'Sagittarius',
+        'symbol': '♐',
+        'element': 'Fire',
+        'ruling_planet': 'Jupiter',
+        'date_range': 'November 22 - December 21',
+        'characteristics': 'Optimistic, adventurous, philosophical, frank'
+    },
+    'Capricornus': {
+        'zodiac_sign': 'Capricorn',
+        'symbol': '♑',
+        'element': 'Earth',
+        'ruling_planet': 'Saturn',
+        'date_range': 'December 22 - January 19',
+        'characteristics': 'Ambitious, disciplined, responsible, practical'
+    },
+    'Aquarius': {
+        'zodiac_sign': 'Aquarius',
+        'symbol': '♒',
+        'element': 'Air',
+        'ruling_planet': 'Uranus',
+        'date_range': 'January 20 - February 18',
+        'characteristics': 'Innovative, independent, humanitarian, detached'
+    },
+    'Pisces': {
+        'zodiac_sign': 'Pisces',
+        'symbol': '♓',
+        'element': 'Water',
+        'ruling_planet': 'Neptune',
+        'date_range': 'February 19 - March 20',
+        'characteristics': 'Intuitive, artistic, empathetic, imaginative'
+    }
+}
+
 # Initialize database on startup
 try:
     init_database()
@@ -947,6 +1047,33 @@ def api_validate_geographic():
     except Exception as e:
         print(f"Geographic validation error: {e}")
         return {"success": False, "message": "Validation failed"}, 500
+
+
+@app.route("/api/constellation_info", methods=["POST"])
+def constellation_info():
+    """Get astrology information for a constellation"""
+    data = request.get_json()
+    constellation_name = data.get('constellation')
+    
+    if not constellation_name:
+        return {"success": False, "message": "No constellation provided"}, 400
+    
+    # Look up the constellation in our astrology database
+    astrology_info = constellation_astrology.get(constellation_name)
+    
+    if astrology_info:
+        return {
+            "success": True,
+            "constellation": constellation_name,
+            "astrology": astrology_info
+        }
+    else:
+        return {
+            "success": False,
+            "message": f"'{constellation_name}' is not a zodiac constellation"
+        }
+
+
 @app.route("/secure-bypass")
 def secure_bypass():
     """TEMPORARY BYPASS - Direct access to secure page for testing"""

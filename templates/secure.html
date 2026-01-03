@@ -7,7 +7,7 @@
         h1 { color: #2c3e50; }
         .info { margin-top: 20px; padding: 15px; background: #f4f4f4; border-radius: 8px; }
         #starmap1 { width: 100%; max-width: 1200px; height: 800px; margin-bottom: 20px; border: 1px solid #ccc; }
-        #zodiac-result { font-size: 1.3em; color: #2c3e50; margin-top: 20px; font-weight: bold; }
+        #zodiac-result { font-size: 1.1em; color: #2c3e50; margin-top: 20px; padding: 15px; background: #f0f8ff; border-left: 4px solid #2980b9; border-radius: 4px; }
         .error { color: #b30000; font-size: 1.1em; margin-top: 15px; }
     </style>
 </head>
@@ -119,14 +119,37 @@
                     var nearest = sky.nearestObject(e.x, e.y);
                     console.log('Nearest object:', nearest);
                     if (nearest && nearest.label) {
-                        var zodiac = zodiacMap[nearest.label];
-                        if (zodiac) {
+                        // Fetch constellation info from server
+                        fetch('/api/constellation_info', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json'
+                            },
+                            body: JSON.stringify({
+                                constellation: nearest.label
+                            })
+                        })
+                        .then(response => response.json())
+                        .then(data => {
+                            console.log('Constellation info:', data);
+                            if (data.success) {
+                                var astro = data.astrology;
+                                document.getElementById('zodiac-result').innerHTML = 
+                                    '<strong>' + astro.zodiac_sign + ' ' + astro.symbol + '</strong><br>' +
+                                    'Element: ' + astro.element + '<br>' +
+                                    'Ruling Planet: ' + astro.ruling_planet + '<br>' +
+                                    'Dates: ' + astro.date_range + '<br>' +
+                                    'Characteristics: ' + astro.characteristics;
+                            } else {
+                                document.getElementById('zodiac-result').textContent = 
+                                    '"' + nearest.label + '" is not a zodiac constellation.';
+                            }
+                        })
+                        .catch(error => {
+                            console.error('Error fetching constellation info:', error);
                             document.getElementById('zodiac-result').textContent = 
-                                'Zodiac sign: ' + zodiac;
-                        } else {
-                            document.getElementById('zodiac-result').textContent = 
-                                '"' + nearest.label + '" is not a zodiac constellation.';
-                        }
+                                'Error retrieving constellation information.';
+                        });
                     }
                 }
             });
